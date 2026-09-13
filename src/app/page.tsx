@@ -566,7 +566,7 @@ export default function MiMesaHome() {
         syncStatus: 'synced',
       };
 
-      // Auto-detect work travel buffers for Rambla and Ferro
+      // Auto-detect travel buffers for Rambla, Ferro, and Facultad
       const isWork = newEvent.category === 'trabajo';
       const isRambla =
         newEvent.location?.type === 'rambla_casino' ||
@@ -576,11 +576,24 @@ export default function MiMesaHome() {
         newEvent.location?.type === 'ferro_san_juan' ||
         newEvent.name.toLowerCase().includes('ferro') ||
         newEvent.name.toLowerCase().includes('san juan');
+      const isFacultad =
+        newEvent.category === 'cursada' ||
+        newEvent.location?.type === 'facultad' ||
+        newEvent.name.toLowerCase().includes('facultad') ||
+        newEvent.name.toLowerCase().includes('cursada') ||
+        newEvent.name.toLowerCase().includes('ufasta');
 
       const travelEvents: Event[] = [];
-      if (isWork && (isRambla || isFerro)) {
-        const buf = isFerro ? params.travel_buffer_ferro : params.travel_buffer_casino;
-        const locName = isFerro ? 'Ferro San Juan' : 'Casino Rambla';
+      if ((isWork && (isRambla || isFerro)) || isFacultad) {
+        let buf = params.travel_buffer_facultad || 40;
+        let locName = 'Facultad de Ingeniería';
+        let locType: any = 'facultad';
+
+        if (isWork) {
+          buf = isFerro ? params.travel_buffer_ferro : params.travel_buffer_casino;
+          locName = isFerro ? 'Ferro San Juan' : 'Casino Rambla';
+          locType = isFerro ? 'ferro_san_juan' : 'rambla_casino';
+        }
 
         travelEvents.push({
           id: `ev_traslado_ida_${Date.now()}`,
@@ -590,7 +603,7 @@ export default function MiMesaHome() {
           start: new Date(newEvent.start.getTime() - buf * 60000),
           duration: buf,
           is_locked: false,
-          location: { type: isFerro ? 'ferro_san_juan' : 'rambla_casino', name: locName },
+          location: { type: locType, name: locName },
           weatherSensitivity: 'transit_only',
           cognitiveLoad: 0,
           physicalLoad: 0,
@@ -971,6 +984,7 @@ export default function MiMesaHome() {
         defaultDate={defaultModalDate || currentAnchorDate}
         travelBufferCasino={params.travel_buffer_casino}
         travelBufferFerro={params.travel_buffer_ferro}
+        travelBufferFacultad={params.travel_buffer_facultad}
       />
 
       {/* Toast Notification Banner */}

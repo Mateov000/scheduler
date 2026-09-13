@@ -34,6 +34,78 @@ describe('Event Builder Business Logic', () => {
     expect(vueltaStart.getDate()).toBe(19); // Next day
   });
 
+  it('calculates travel buffers correctly for Facultad shift (40 min default)', () => {
+    const classStart = new Date(2026, 8, 15, 8, 0, 0); // Tuesday 08:00
+    const duration = 240; // 4 hours (until 12:00)
+    const bufferMinutes = 40;
+
+    const idaStart = new Date(classStart.getTime() - bufferMinutes * 60000);
+    const vueltaStart = new Date(classStart.getTime() + duration * 60000);
+
+    expect(idaStart.getHours()).toBe(7);
+    expect(idaStart.getMinutes()).toBe(20);
+
+    expect(vueltaStart.getHours()).toBe(12);
+    expect(vueltaStart.getMinutes()).toBe(0);
+  });
+
+  it('supports independent Ida and Vuelta travel event generation (Solo Ida, Solo Vuelta, Ambos, Ninguno)', () => {
+    const classStart = new Date(2026, 8, 15, 14, 0, 0); // 14:00 to 18:00
+    const duration = 240;
+    const effectiveBuffer = 40;
+    const venueName = 'Facultad de Ingeniería';
+
+    const buildTravelEvents = (includeIda: boolean, includeVuelta: boolean) => {
+      const events = [];
+      if (includeIda) {
+        events.push({
+          id: 'ev_ida',
+          name: `Traslado a ${venueName}`,
+          start: new Date(classStart.getTime() - effectiveBuffer * 60000),
+          duration: effectiveBuffer,
+        });
+      }
+      if (includeVuelta) {
+        events.push({
+          id: 'ev_vuelta',
+          name: `Traslado desde ${venueName}`,
+          start: new Date(classStart.getTime() + duration * 60000),
+          duration: effectiveBuffer,
+        });
+      }
+      return events;
+    };
+
+    // 1. Ambos
+    const both = buildTravelEvents(true, true);
+    expect(both).toHaveLength(2);
+    expect(both[0].name).toBe('Traslado a Facultad de Ingeniería');
+    expect(both[0].duration).toBe(40);
+    expect(both[0].start.getHours()).toBe(13);
+    expect(both[0].start.getMinutes()).toBe(20);
+    expect(both[1].name).toBe('Traslado desde Facultad de Ingeniería');
+    expect(both[1].start.getHours()).toBe(18);
+    expect(both[1].start.getMinutes()).toBe(0);
+
+    // 2. Solo Ida
+    const idaOnly = buildTravelEvents(true, false);
+    expect(idaOnly).toHaveLength(1);
+    expect(idaOnly[0].name).toBe('Traslado a Facultad de Ingeniería');
+    expect(idaOnly[0].start.getHours()).toBe(13);
+    expect(idaOnly[0].start.getMinutes()).toBe(20);
+
+    // 3. Solo Vuelta
+    const vueltaOnly = buildTravelEvents(false, true);
+    expect(vueltaOnly).toHaveLength(1);
+    expect(vueltaOnly[0].name).toBe('Traslado desde Facultad de Ingeniería');
+    expect(vueltaOnly[0].start.getHours()).toBe(18);
+    expect(vueltaOnly[0].start.getMinutes()).toBe(0);
+
+    // 4. Ninguno
+    const none = buildTravelEvents(false, false);
+    expect(none).toHaveLength(0);
+  });
+
   it('creates full recurring instances up to end date without losing base event properties', () => {
     const baseEvent: Event = {
       id: 'ev_gym_builder',

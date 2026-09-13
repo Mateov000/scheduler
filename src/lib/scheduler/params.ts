@@ -11,6 +11,7 @@ export interface ConstraintParams {
   // Tier 1: HC-05
   travel_buffer_casino: number;           // default: 30 min, min: 10, max: 90
   travel_buffer_ferro: number;            // default: 45 min, min: 15, max: 90
+  travel_buffer_facultad: number;         // default: 40 min, min: 15, max: 90
 
   // Tier 1: HC-11
   cognitive_ban_post_ferro: number;       // default: 90 min, min: 0, max: 180 (0 = desactivada)
@@ -41,6 +42,7 @@ export const defaultParams: ConstraintParams = {
   sleep_minimum_absolute: 360,
   travel_buffer_casino: 30,
   travel_buffer_ferro: 45,
+  travel_buffer_facultad: 40,
   cognitive_ban_post_ferro: 90,
   weather_extreme_threshold: 20,
   study_block_min_duration: 120,

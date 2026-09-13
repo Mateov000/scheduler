@@ -129,6 +129,18 @@ const ALL_PARAMS_META: ParamMeta[] = [
     category: 'Hard',
   },
   {
+    key: 'travel_buffer_facultad',
+    label: 'HC-05 · Traslado Facultad de Ingeniería (UFASTA)',
+    unit: 'minutos',
+    description: 'Tiempo de viaje asignado por tramo entre el hogar y la Facultad.',
+    howItWorks: 'Inserta un buffer sugerido antes (ida) y/o después (vuelta) de las cursadas o actividades en la facultad.',
+    mathLogic: 'buffer_previo ≥ travel_buffer_facultad && buffer_posterior ≥ travel_buffer_facultad',
+    min: 15,
+    max: 90,
+    step: 5,
+    category: 'Hard',
+  },
+  {
     key: 'cognitive_ban_post_ferro',
     label: 'HC-11 · Bloqueo Cognitivo Post-Ferro',
     unit: 'minutos',

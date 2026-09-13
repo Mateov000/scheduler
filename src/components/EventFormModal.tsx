@@ -27,6 +27,7 @@ interface EventFormModalProps {
   defaultDate?: Date | null;
   travelBufferCasino?: number;
   travelBufferFerro?: number;
+  travelBufferFacultad?: number;
 }
 
 function formatLocalDate(date: Date): string {
@@ -75,6 +76,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
   defaultDate,
   travelBufferCasino = 30,
   travelBufferFerro = 45,
+  travelBufferFacultad = 40,
 }) => {
   const isEdit = !!initialEvent;
 
@@ -94,8 +96,10 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
   const [isSensitive, setIsSensitive] = useState<boolean>(false);
   const [cannabisConsumed, setCannabisConsumed] = useState<boolean>(false);
 
-  // Auto Travel Buffer for Work
-  const [autoTravelBuffers, setAutoTravelBuffers] = useState<boolean>(true);
+  // Suggested Associated Travel Buffers (Independent Ida / Vuelta)
+  const [includeTravelIda, setIncludeTravelIda] = useState<boolean>(true);
+  const [includeTravelVuelta, setIncludeTravelVuelta] = useState<boolean>(true);
+  const [travelBufferMinutes, setTravelBufferMinutes] = useState<number>(30);
 
   // Recurrence State
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
@@ -126,6 +130,9 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       setIsSensitive(initialEvent.is_sensitive ?? false);
       setCannabisConsumed(initialEvent.cannabis_consumed ?? false);
       setIsRecurring(!!initialEvent.recurrenceId);
+      setIncludeTravelIda(false);
+      setIncludeTravelVuelta(false);
+      setTravelBufferMinutes(30);
     } else {
       setName('');
       setCategory('trabajo');
@@ -146,7 +153,9 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       setIsLocked(false);
       setIsSensitive(false);
       setCannabisConsumed(false);
-      setAutoTravelBuffers(true);
+      setIncludeTravelIda(true);
+      setIncludeTravelVuelta(true);
+      setTravelBufferMinutes(travelBufferCasino);
       setIsRecurring(false);
       setRecurrenceFreq('weekly');
       setRecurrenceDays([d.getDay() as DayOfWeek]);
@@ -170,41 +179,61 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       setLocationType('rambla_casino');
       setCognitiveLoad(1);
       setPhysicalLoad(1);
+      setIncludeTravelIda(true);
+      setIncludeTravelVuelta(true);
+      setTravelBufferMinutes(travelBufferCasino);
     } else if (cat === 'cursada') {
       setLocationType('facultad');
       setCognitiveLoad(2);
       setPhysicalLoad(0);
       setDuration(120);
+      setIncludeTravelIda(true);
+      setIncludeTravelVuelta(true);
+      setTravelBufferMinutes(travelBufferFacultad); // 40 min default
     } else if (cat === 'estudio') {
       setLocationType('casa');
       setCognitiveLoad(3);
       setPhysicalLoad(0);
       setDuration(120);
+      setIncludeTravelIda(false);
+      setIncludeTravelVuelta(false);
     } else if (cat === 'gym') {
       setLocationType('gym');
       setPhysicalLoad(3);
       setCognitiveLoad(0);
       setDuration(60);
+      setIncludeTravelIda(false);
+      setIncludeTravelVuelta(false);
     } else if (cat === 'social') {
       setLocationType('exterior_rambla');
       setCognitiveLoad(0);
       setPhysicalLoad(0);
+      setIncludeTravelIda(false);
+      setIncludeTravelVuelta(false);
     } else if (cat === 'batch_cooking') {
       setLocationType('casa');
       setCognitiveLoad(1);
       setPhysicalLoad(1);
       setDuration(120);
+      setIncludeTravelIda(false);
+      setIncludeTravelVuelta(false);
     } else if (cat === 'recuperacion') {
       setLocationType('casa');
       setIsSensitive(true);
       setCognitiveLoad(0);
       setPhysicalLoad(0);
+      setIncludeTravelIda(false);
+      setIncludeTravelVuelta(false);
     } else if (cat === 'comida') {
       setLocationType('casa');
       setDuration(45);
+      setIncludeTravelIda(false);
+      setIncludeTravelVuelta(false);
     } else if (cat === 'sueno') {
       setLocationType('casa');
       setDuration(480);
+      setIncludeTravelIda(false);
+      setIncludeTravelVuelta(false);
     }
   };
 
@@ -232,38 +261,71 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
     setDuration(diff);
   };
 
-  // Detect if work shift is at Rambla or Ferro
-  const isWorkShift = category === 'trabajo';
-  const isRambla =
-    locationType === 'rambla_casino' ||
-    name.toLowerCase().includes('rambla') ||
-    name.toLowerCase().includes('casino');
-  const isFerro =
-    locationType === 'ferro_san_juan' ||
-    name.toLowerCase().includes('ferro') ||
-    name.toLowerCase().includes('san juan');
-  const hasTravelBufferDetected = isWorkShift && (isRambla || isFerro);
-  const detectedTravelBufferMinutes = isFerro ? travelBufferFerro : travelBufferCasino;
-  const detectedWorkplaceName = isFerro ? 'Ferro San Juan' : 'Casino Rambla';
+  // Detect venue and suggested associated travel (Work, Facultad, or External)
+  const isWorkCasino =
+    category === 'trabajo' &&
+    (locationType === 'rambla_casino' ||
+      name.toLowerCase().includes('rambla') ||
+      name.toLowerCase().includes('casino'));
 
-  // Computed preview for travel buffers
+  const isWorkFerro =
+    category === 'trabajo' &&
+    (locationType === 'ferro_san_juan' ||
+      name.toLowerCase().includes('ferro') ||
+      name.toLowerCase().includes('san juan'));
+
+  const isFacultad =
+    category === 'cursada' ||
+    locationType === 'facultad' ||
+    name.toLowerCase().includes('facultad') ||
+    name.toLowerCase().includes('ufasta') ||
+    name.toLowerCase().includes('cursada') ||
+    name.toLowerCase().includes('ingenieria');
+
+  // Can this event have suggested travel?
+  const isEligibleForSuggestedTravel = isWorkCasino || isWorkFerro || isFacultad || locationType !== 'casa';
+
+  let detectedVenueName = 'Destino';
+  let defaultSuggestedBuffer = 30;
+
+  if (isWorkCasino) {
+    detectedVenueName = 'Casino Rambla';
+    defaultSuggestedBuffer = travelBufferCasino;
+  } else if (isWorkFerro) {
+    detectedVenueName = 'Ferro San Juan';
+    defaultSuggestedBuffer = travelBufferFerro;
+  } else if (isFacultad) {
+    detectedVenueName = 'Facultad de Ingeniería (UFASTA)';
+    defaultSuggestedBuffer = travelBufferFacultad; // 40 min default!
+  } else if (locationType === 'custom') {
+    detectedVenueName = customLocationName || 'Ubicación Externa';
+    defaultSuggestedBuffer = 30;
+  } else {
+    const match = PREDEFINED_LOCATIONS.find((l) => l.type === locationType);
+    detectedVenueName = match?.name || 'Destino';
+    defaultSuggestedBuffer = 30;
+  }
+
+  // Computed preview for travel buffers (Ida / Vuelta)
   const calculateTravelTimes = () => {
-    if (!hasTravelBufferDetected || !autoTravelBuffers) return null;
+    if (!includeTravelIda && !includeTravelVuelta) return null;
     const parts = (startTimeStr || '10:00').split(':').map((v) => parseInt(v, 10) || 0);
     const startMins = (parts[0] ?? 10) * 60 + (parts[1] ?? 0);
-    const idaStartMins = (startMins - detectedTravelBufferMinutes + 24 * 60) % (24 * 60);
+    const effectiveBuffer = travelBufferMinutes || defaultSuggestedBuffer;
+
+    const idaStartMins = (startMins - effectiveBuffer + 24 * 60) % (24 * 60);
     const idaH = Math.floor(idaStartMins / 60);
     const idaM = idaStartMins % 60;
     const idaTime = `${String(idaH).padStart(2, '0')}:${String(idaM).padStart(2, '0')}`;
 
     const endParts = calculateEndTimeStr().split(':').map((v) => parseInt(v, 10) || 0);
     const endMins = (endParts[0] || 0) * 60 + (endParts[1] || 0);
-    const vueltaEndMins = (endMins + detectedTravelBufferMinutes) % (24 * 60);
+    const vueltaEndMins = (endMins + effectiveBuffer) % (24 * 60);
     const vueltaH = Math.floor(vueltaEndMins / 60);
     const vueltaM = vueltaEndMins % 60;
     const vueltaTime = `${String(vueltaH).padStart(2, '0')}:${String(vueltaM).padStart(2, '0')}`;
 
-    return { idaTime, vueltaTime };
+    return { idaTime, vueltaTime, effectiveBuffer };
   };
   const travelTimes = calculateTravelTimes();
 
@@ -317,21 +379,21 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       syncStatus: 'pending',
     };
 
-    // 1. Generate Separate Work Travel Events if enabled
+    // 1. Generate Separate Travel Events if enabled (Ida and/or Vuelta independently)
     const travelEvents: Event[] = [];
-    if (hasTravelBufferDetected && autoTravelBuffers) {
-      const idaStart = new Date(startDate.getTime() - detectedTravelBufferMinutes * 60000);
-      const vueltaStart = new Date(startDate.getTime() + duration * 60000);
+    const effectiveBuffer = travelBufferMinutes || defaultSuggestedBuffer;
 
+    if (includeTravelIda) {
+      const idaStart = new Date(startDate.getTime() - effectiveBuffer * 60000);
       travelEvents.push({
         id: `ev_traslado_ida_${Date.now()}`,
-        name: `Traslado a ${detectedWorkplaceName}`,
+        name: `Traslado a ${detectedVenueName}`,
         category: 'traslado',
         emoji: '🚌',
         start: idaStart,
-        duration: detectedTravelBufferMinutes,
+        duration: effectiveBuffer,
         is_locked: isLocked,
-        location: { type: locationType, name: detectedWorkplaceName },
+        location: { type: locationType, name: detectedVenueName },
         weatherSensitivity: 'transit_only',
         cognitiveLoad: 0,
         physicalLoad: 0,
@@ -342,14 +404,17 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
         localVersion: 1,
         syncStatus: 'pending',
       });
+    }
 
+    if (includeTravelVuelta) {
+      const vueltaStart = new Date(startDate.getTime() + duration * 60000);
       travelEvents.push({
         id: `ev_traslado_vuelta_${Date.now() + 1}`,
-        name: `Traslado desde ${detectedWorkplaceName}`,
+        name: `Traslado desde ${detectedVenueName}`,
         category: 'traslado',
         emoji: '🚌',
         start: vueltaStart,
-        duration: detectedTravelBufferMinutes,
+        duration: effectiveBuffer,
         is_locked: isLocked,
         location: { type: 'casa', name: 'Casa' },
         weatherSensitivity: 'transit_only',
@@ -581,32 +646,153 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
               )}
             </div>
 
-            {/* Aviso y Configuración de Traslados para Casino y Ferro */}
-            {hasTravelBufferDetected && (
-              <div className="p-3 bg-indigo-950/40 border border-indigo-500/40 rounded-xl flex flex-col gap-2 animate-fadeIn">
-                <div className="flex items-start gap-2">
-                  <Car className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <span className="font-bold text-indigo-200">
-                      🚗 Traslado Laboral Detectado ({detectedWorkplaceName})
-                    </span>
-                    <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
-                      El sistema reservará automáticamente dos eventos separados de traslado:{' '}
-                      <strong>{detectedTravelBufferMinutes} min de ida</strong> antes de entrar y{' '}
-                      <strong>{detectedTravelBufferMinutes} min de vuelta</strong> al salir.
-                    </p>
+            {/* Aviso y Configuración de Traslados Sugeridos (Facultad, Trabajo o Externo) */}
+            {isEligibleForSuggestedTravel && (
+              <div className="p-4 bg-indigo-950/40 border border-indigo-500/40 rounded-xl flex flex-col gap-3 animate-fadeIn">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div className="flex items-start gap-2.5">
+                    <div className="p-1.5 rounded-lg bg-indigo-600/30 text-indigo-300 mt-0.5">
+                      <Car className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="font-bold text-indigo-200 text-xs">
+                        🚗 Traslado Sugerido: {detectedVenueName}
+                      </span>
+                      <p className="text-[11px] text-slate-300 mt-0.5">
+                        {isFacultad
+                          ? `Default sugerido de ${travelBufferFacultad} min de viaje a la facultad (ida y/o vuelta).`
+                          : isWorkFerro
+                          ? `Default sugerido de ${travelBufferFerro} min de viaje a Ferro San Juan.`
+                          : isWorkCasino
+                          ? `Default sugerido de ${travelBufferCasino} min de viaje a Casino Rambla.`
+                          : `Tiempo estimado de viaje para esta ubicación externa.`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Input de minutos de viaje por tramo */}
+                  <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 px-2.5 py-1 rounded-lg self-start sm:self-auto">
+                    <span className="text-slate-400 text-[11px]">Duración:</span>
+                    <input
+                      type="number"
+                      min="5"
+                      step="5"
+                      value={travelBufferMinutes}
+                      onChange={(e) => setTravelBufferMinutes(Math.max(5, parseInt(e.target.value, 10) || 5))}
+                      className="w-12 bg-transparent text-indigo-300 font-mono font-bold text-center focus:outline-none text-xs"
+                    />
+                    <span className="text-slate-500 font-mono text-[11px]">min/tramo</span>
                   </div>
                 </div>
 
-                <label className="flex items-center gap-2 text-indigo-300 font-semibold cursor-pointer pt-1">
-                  <input
-                    type="checkbox"
-                    checked={autoTravelBuffers}
-                    onChange={(e) => setAutoTravelBuffers(e.target.checked)}
-                    className="rounded bg-slate-800 border-slate-700 text-indigo-600 focus:ring-0"
-                  />
-                  <span>Crear automáticamente los bloques de traslado como eventos separados</span>
-                </label>
+                {/* Quick selection pills for Ida / Vuelta */}
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-800/80">
+                  <span className="text-[11px] text-slate-400 font-medium">Opciones rápidas:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIncludeTravelIda(true);
+                      setIncludeTravelVuelta(true);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                      includeTravelIda && includeTravelVuelta
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Ambos (Ida y Vuelta)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIncludeTravelIda(true);
+                      setIncludeTravelVuelta(false);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                      includeTravelIda && !includeTravelVuelta
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Solo Ida
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIncludeTravelIda(false);
+                      setIncludeTravelVuelta(true);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                      !includeTravelIda && includeTravelVuelta
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Solo Vuelta
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIncludeTravelIda(false);
+                      setIncludeTravelVuelta(false);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                      !includeTravelIda && !includeTravelVuelta
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Ninguno
+                  </button>
+                </div>
+
+                {/* Independent Checkboxes with Time Range Preview */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  <label className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                    includeTravelIda
+                      ? 'bg-indigo-950/70 border-indigo-500 text-white'
+                      : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:text-slate-300'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={includeTravelIda}
+                      onChange={(e) => setIncludeTravelIda(e.target.checked)}
+                      className="rounded bg-slate-800 border-slate-700 text-indigo-600 focus:ring-0"
+                    />
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-xs flex items-center gap-1">
+                        <span>🚌</span> Crear traslado de IDA
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {travelTimes ? `${travelTimes.idaTime} a ${startTimeStr} (${travelBufferMinutes} min)` : `${travelBufferMinutes} min antes`}
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                    includeTravelVuelta
+                      ? 'bg-indigo-950/70 border-indigo-500 text-white'
+                      : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:text-slate-300'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={includeTravelVuelta}
+                      onChange={(e) => setIncludeTravelVuelta(e.target.checked)}
+                      className="rounded bg-slate-800 border-slate-700 text-indigo-600 focus:ring-0"
+                    />
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-xs flex items-center gap-1">
+                        <span>🚌</span> Crear traslado de VUELTA
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {travelTimes ? `${calculateEndTimeStr()} a ${travelTimes.vueltaTime} (${travelBufferMinutes} min)` : `${travelBufferMinutes} min después`}
+                      </span>
+                    </div>
+                  </label>
+                </div>
               </div>
             )}
           </div>
@@ -801,14 +987,14 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
             </div>
 
             {/* Travel IDA preview if active */}
-            {travelTimes && (
+            {includeTravelIda && travelTimes && (
               <div className="p-2 rounded-lg bg-zinc-900/80 border border-zinc-700/60 flex items-center justify-between text-[11px] text-zinc-300 font-mono">
                 <div className="flex items-center gap-1.5">
                   <span>🚌</span>
-                  <span className="font-sans font-semibold">Traslado ida a {detectedWorkplaceName}</span>
+                  <span className="font-sans font-semibold">Traslado ida a {detectedVenueName}</span>
                 </div>
                 <span className="text-zinc-400">
-                  {travelTimes.idaTime} - {startTimeStr} ({detectedTravelBufferMinutes}m)
+                  {travelTimes.idaTime} - {startTimeStr} ({travelBufferMinutes}m)
                 </span>
               </div>
             )}
@@ -870,14 +1056,14 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
             </div>
 
             {/* Travel VUELTA preview if active */}
-            {travelTimes && (
+            {includeTravelVuelta && travelTimes && (
               <div className="p-2 rounded-lg bg-zinc-900/80 border border-zinc-700/60 flex items-center justify-between text-[11px] text-zinc-300 font-mono">
                 <div className="flex items-center gap-1.5">
                   <span>🚌</span>
-                  <span className="font-sans font-semibold">Traslado vuelta desde {detectedWorkplaceName}</span>
+                  <span className="font-sans font-semibold">Traslado vuelta desde {detectedVenueName}</span>
                 </div>
                 <span className="text-zinc-400">
-                  {calculateEndTimeStr()} - {travelTimes.vueltaTime} ({detectedTravelBufferMinutes}m)
+                  {calculateEndTimeStr()} - {travelTimes.vueltaTime} ({travelBufferMinutes}m)
                 </span>
               </div>
             )}
