@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Edit2,
   Lock,
   MapPin,
   Sparkles,
@@ -23,6 +24,7 @@ interface CalendarGridProps {
   onToggleLock: (eventId: string) => void;
   onEventClick?: (event: Event) => void;
   onDeleteEvent?: (eventId: string) => void;
+  onEditEvent?: (event: Event) => void;
   onClearWeek?: () => void;
 }
 
@@ -138,6 +140,7 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
   onToggleLock,
   onEventClick,
   onDeleteEvent,
+  onEditEvent,
   onClearWeek,
 }) => {
   const [viewMode, setViewMode] = useState<'week' | 'day'>('week');
@@ -387,6 +390,20 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                               )}
                             </button>
 
+                            {/* Edit Event Button */}
+                            {onEditEvent && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onEditEvent(event);
+                                }}
+                                title="Editar evento"
+                                className="p-1 rounded text-slate-400 hover:text-indigo-300 hover:bg-indigo-950/70 transition-colors opacity-70 hover:opacity-100"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
                             {/* Delete Event Button */}
                             {onDeleteEvent && (
                               <button
@@ -509,6 +526,18 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
               </button>
 
               <div className="flex items-center gap-2">
+                {onEditEvent && (
+                  <button
+                    onClick={() => {
+                      onEditEvent(selectedEvent);
+                      setSelectedEvent(null);
+                    }}
+                    className="px-3.5 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition-colors flex items-center gap-1.5"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    Editar
+                  </button>
+                )}
                 {onDeleteEvent && (
                   <button
                     onClick={() => {
@@ -520,7 +549,7 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                     className="px-3.5 py-2 text-xs font-bold rounded-xl bg-rose-950/70 hover:bg-rose-900 text-rose-300 hover:text-rose-100 border border-rose-800/80 transition-colors flex items-center gap-1.5"
                   >
                     <Trash2 className="w-4 h-4 text-rose-400" />
-                    Eliminar Evento
+                    Eliminar
                   </button>
                 )}
                 <button

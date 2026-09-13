@@ -169,6 +169,12 @@ describe('Fase 5: Intelligent Modules & Analytics', () => {
     expect(casinoParsed.location?.type).toBe('rambla_casino');
     expect(casinoParsed.duration).toBe(360);
 
+    const rambla9h = await client.parseNaturalLanguageToEvent('rambla de 10 a 19');
+    expect(rambla9h.category).toBe('trabajo');
+    expect(rambla9h.location?.type).toBe('rambla_casino');
+    expect(rambla9h.duration).toBe(540);
+    expect(rambla9h.start?.getHours()).toBe(10);
+
     const studyParsed = await client.parseNaturalLanguageToEvent('Estudio para parcial de Redes');
     expect(studyParsed.category).toBe('estudio');
     expect(studyParsed.cognitiveLoad).toBe(3);

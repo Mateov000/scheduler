@@ -23,6 +23,7 @@ import {
 import { CalendarGrid } from '@/components/CalendarGrid';
 import { ConstraintPanel } from '@/components/ConstraintPanel';
 import { DiffViewerModal } from '@/components/DiffViewerModal';
+import { EventFormModal } from '@/components/EventFormModal';
 import { MetaSliders } from '@/components/MetaSliders';
 import { OnboardingWizard } from '@/components/OnboardingWizard';
 import { RetrospectiveView } from '@/components/RetrospectiveView';
@@ -256,6 +257,8 @@ export default function MiMesaHome() {
   const [showSimulationModal, setShowSimulationModal] = useState<boolean>(false);
   const [showRetrospective, setShowRetrospective] = useState<boolean>(false);
   const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
+  const [showEventModal, setShowEventModal] = useState<boolean>(false);
+  const [editingEvent, setEditingEvent] = useState<Event | null>(null);
 
   // Solver Proposed State
   const [proposedSchedule, setProposedSchedule] = useState<Event[]>([]);
@@ -478,6 +481,45 @@ export default function MiMesaHome() {
     downloadIcsFile(icsContent, 'mimesa-agenda-semanal.ics');
   };
 
+  // Handle Save from EventFormModal (Create or Edit)
+  const handleSaveEvent = (savedEvent: Event, travelEvents?: Event[], recurringInstances?: Event[]) => {
+    let nextSchedule = [...schedule];
+
+    if (editingEvent) {
+      // Replace edited event in schedule
+      const index = nextSchedule.findIndex((e) => e.id === savedEvent.id);
+      if (index >= 0) {
+        nextSchedule[index] = savedEvent;
+      } else {
+        nextSchedule.push(savedEvent);
+      }
+    } else {
+      // Add new event or recurring instances
+      const eventsToAdd = recurringInstances && recurringInstances.length > 0 ? recurringInstances : [savedEvent];
+      nextSchedule.push(...eventsToAdd);
+    }
+
+    // Add travel events if generated
+    if (travelEvents && travelEvents.length > 0) {
+      nextSchedule.push(...travelEvents);
+    }
+
+    setSchedule(nextSchedule);
+    store.saveEvents(nextSchedule);
+
+    if (isSupabaseConfigured) {
+      const eventsToPush = recurringInstances && recurringInstances.length > 0 ? recurringInstances : [savedEvent];
+      for (const ev of eventsToPush) {
+        syncClient.pushEvent(sanitizeForCloudSync(ev));
+      }
+      if (travelEvents) {
+        for (const t of travelEvents) {
+          syncClient.pushEvent(sanitizeForCloudSync(t));
+        }
+      }
+    }
+  };
+
   // NLU submission
   const handleNluSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -506,10 +548,74 @@ export default function MiMesaHome() {
         syncStatus: 'synced',
       };
 
-      const updated = [...schedule, newEvent];
+      // Auto-detect work travel buffers for Rambla and Ferro
+      const isWork = newEvent.category === 'trabajo';
+      const isRambla =
+        newEvent.location?.type === 'rambla_casino' ||
+        newEvent.name.toLowerCase().includes('rambla') ||
+        newEvent.name.toLowerCase().includes('casino');
+      const isFerro =
+        newEvent.location?.type === 'ferro_san_juan' ||
+        newEvent.name.toLowerCase().includes('ferro') ||
+        newEvent.name.toLowerCase().includes('san juan');
+
+      const travelEvents: Event[] = [];
+      if (isWork && (isRambla || isFerro)) {
+        const buf = isFerro ? params.travel_buffer_ferro : params.travel_buffer_casino;
+        const locName = isFerro ? 'Ferro San Juan' : 'Casino Rambla';
+
+        travelEvents.push({
+          id: `ev_traslado_ida_${Date.now()}`,
+          name: `Traslado a ${locName}`,
+          category: 'traslado',
+          emoji: '🚌',
+          start: new Date(newEvent.start.getTime() - buf * 60000),
+          duration: buf,
+          is_locked: false,
+          location: { type: isFerro ? 'ferro_san_juan' : 'rambla_casino', name: locName },
+          weatherSensitivity: 'transit_only',
+          cognitiveLoad: 0,
+          physicalLoad: 0,
+          is_sensitive: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deviceId: 'local',
+          localVersion: 1,
+          syncStatus: 'synced',
+        });
+
+        travelEvents.push({
+          id: `ev_traslado_vuelta_${Date.now() + 1}`,
+          name: `Traslado desde ${locName}`,
+          category: 'traslado',
+          emoji: '🚌',
+          start: new Date(newEvent.start.getTime() + newEvent.duration * 60000),
+          duration: buf,
+          is_locked: false,
+          location: { type: 'casa', name: 'Casa' },
+          weatherSensitivity: 'transit_only',
+          cognitiveLoad: 0,
+          physicalLoad: 0,
+          is_sensitive: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deviceId: 'local',
+          localVersion: 1,
+          syncStatus: 'synced',
+        });
+      }
+
+      const updated = [...schedule, newEvent, ...travelEvents];
       setSchedule(updated);
       store.saveEvents(updated);
       setNaturalTextInput('');
+
+      if (isSupabaseConfigured) {
+        syncClient.pushEvent(sanitizeForCloudSync(newEvent));
+        for (const t of travelEvents) {
+          syncClient.pushEvent(sanitizeForCloudSync(t));
+        }
+      }
     } finally {
       setIsProcessingNLU(false);
     }
@@ -574,6 +680,19 @@ export default function MiMesaHome() {
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2">
+          {/* Constructor Manual de Eventos */}
+          <button
+            onClick={() => {
+              setEditingEvent(null);
+              setShowEventModal(true);
+            }}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/30 transition-all flex items-center gap-1.5"
+            title="Abrir constructor visual de eventos (con categorías, traslados y recurrencia)"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Nuevo Evento</span>
+          </button>
+
           {/* Planificar Semana */}
           <button
             onClick={() => setShowPlanningSession(true)}
@@ -661,6 +780,18 @@ export default function MiMesaHome() {
           >
             {isProcessingNLU ? 'Parseando...' : <><Plus className="w-3.5 h-3.5" /> Agregar</>}
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEditingEvent(null);
+              setShowEventModal(true);
+            }}
+            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs rounded-xl transition-all border border-slate-700 ml-1.5 flex items-center gap-1"
+            title="Abrir Constructor de Evento"
+          >
+            <Settings className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden sm:inline">Constructor</span>
+          </button>
         </form>
 
         {/* Top Widget Bar: ScoreWidget & Meta-Sliders Preview */}
@@ -706,6 +837,10 @@ export default function MiMesaHome() {
             weather={weather}
             onToggleLock={handleToggleLock}
             onDeleteEvent={handleDeleteEvent}
+            onEditEvent={(ev) => {
+              setEditingEvent(ev);
+              setShowEventModal(true);
+            }}
             onClearWeek={handleClearWeek}
           />
         </section>
@@ -793,6 +928,19 @@ export default function MiMesaHome() {
           store.saveParams(initParams);
           setShowOnboarding(false);
         }}
+      />
+
+      {/* Constructor & Editor de Eventos */}
+      <EventFormModal
+        isOpen={showEventModal}
+        onClose={() => {
+          setShowEventModal(false);
+          setEditingEvent(null);
+        }}
+        onSave={handleSaveEvent}
+        initialEvent={editingEvent}
+        travelBufferCasino={params.travel_buffer_casino}
+        travelBufferFerro={params.travel_buffer_ferro}
       />
     </div>
   );

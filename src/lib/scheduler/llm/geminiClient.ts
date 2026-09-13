@@ -155,19 +155,67 @@ Devuelve SOLO el JSON sin formato markdown.`;
       cognitiveLoad = 0;
     }
 
-    // Detect Time (e.g., "14:00", "a las 10", "18 hs")
+    // Detect Time and Duration (Range "de 10 a 19", "10 a 19 hs", "de 17 a 01" or single "a las 10")
     let hour = 14;
     let minute = 0;
+    let explicitDuration: number | null = null;
 
-    const timeMatch = lower.match(/(?:a las\s+)?(\d{1,2})(?::(\d{2})|\s*hs)?/);
-    if (timeMatch && timeMatch[1]) {
-      const parsedHour = parseInt(timeMatch[1], 10);
-      if (parsedHour >= 0 && parsedHour <= 23) {
-        hour = parsedHour;
-        if (timeMatch[2]) {
-          minute = parseInt(timeMatch[2], 10);
+    // Check for time range (e.g. "de 10 a 19", "de 10:00 a 19:30", "10 a 19", "de 17 a 01")
+    const rangeMatch = lower.match(
+      /(?:de\s+|desde\s+(?:las\s+)?)?(\d{1,2})(?::(\d{2}))?\s*(?:a|hasta(?:\s*las)?|-)\s*(\d{1,2})(?::(\d{2}))?(?:\s*hs)?/i
+    );
+
+    if (rangeMatch && rangeMatch[1] && rangeMatch[3]) {
+      const startH = parseInt(rangeMatch[1], 10);
+      const startM = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : 0;
+      const endH = parseInt(rangeMatch[3], 10);
+      const endM = rangeMatch[4] ? parseInt(rangeMatch[4], 10) : 0;
+
+      if (startH >= 0 && startH <= 24 && endH >= 0 && endH <= 24) {
+        hour = startH;
+        minute = startM;
+
+        let totalMinutes: number;
+        if (endH < startH || (endH === startH && endM < startM)) {
+          // Crosses midnight (e.g., 17 a 01 = 8 hours = 480 min)
+          totalMinutes = (24 - startH + endH) * 60 + (endM - startM);
+        } else {
+          totalMinutes = (endH - startH) * 60 + (endM - startM);
+        }
+
+        if (totalMinutes > 0) {
+          explicitDuration = totalMinutes;
         }
       }
+    } else {
+      // Single time detection (e.g., "a las 10", "10:30", "18 hs")
+      const timeMatch =
+        lower.match(/(?:a las\s+|las\s+)(\d{1,2})(?::(\d{2}))?(?:\s*hs)?/) ||
+        lower.match(/(\d{1,2}):(\d{2})(?:\s*hs)?/) ||
+        lower.match(/(\d{1,2})\s*hs/);
+
+      if (timeMatch && timeMatch[1]) {
+        const parsedHour = parseInt(timeMatch[1], 10);
+        if (parsedHour >= 0 && parsedHour <= 23) {
+          hour = parsedHour;
+          if (timeMatch[2]) {
+            minute = parseInt(timeMatch[2], 10);
+          }
+        }
+      }
+
+      // Check for explicit duration (e.g., "por 3 horas", "durante 90 minutos")
+      const durHoursMatch = lower.match(/(?:por|durante)\s+(\d+(?:\.\d+)?)\s*(?:horas|hora|hs|h)/);
+      const durMinutesMatch = lower.match(/(?:por|durante)\s+(\d+)\s*(?:minutos|min|m)/);
+      if (durHoursMatch && durHoursMatch[1]) {
+        explicitDuration = Math.round(parseFloat(durHoursMatch[1]) * 60);
+      } else if (durMinutesMatch && durMinutesMatch[1]) {
+        explicitDuration = parseInt(durMinutesMatch[1], 10);
+      }
+    }
+
+    if (explicitDuration !== null) {
+      duration = explicitDuration;
     }
 
     // Detect Day of week
