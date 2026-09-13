@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
@@ -9,7 +10,9 @@ import {
   Lock,
   MapPin,
   Sparkles,
+  Trash2,
   Unlock,
+  X,
 } from 'lucide-react';
 import { Event, EventCategory, WeatherCondition } from '../lib/scheduler/types';
 
@@ -19,6 +22,8 @@ interface CalendarGridProps {
   currentDate?: Date;
   onToggleLock: (eventId: string) => void;
   onEventClick?: (event: Event) => void;
+  onDeleteEvent?: (eventId: string) => void;
+  onClearWeek?: () => void;
 }
 
 const CATEGORY_STYLES: Record<
@@ -132,9 +137,12 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
   currentDate = new Date(),
   onToggleLock,
   onEventClick,
+  onDeleteEvent,
+  onClearWeek,
 }) => {
   const [viewMode, setViewMode] = useState<'week' | 'day'>('week');
   const [anchorDate, setAnchorDate] = useState<Date>(currentDate);
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
 
   // Compute week range (Monday to Sunday)
   const weekDays = useMemo(() => {
@@ -184,6 +192,18 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Botón de Vaciar Semana */}
+          {onClearWeek && (
+            <button
+              onClick={onClearWeek}
+              className="px-3 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-rose-100 border border-rose-800/50 transition-all flex items-center gap-1.5 text-xs font-semibold shadow-sm mr-1"
+              title="Vaciar todos los eventos de la semana actual"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+              <span>Vaciar Semana</span>
+            </button>
+          )}
+
           <div className="flex items-center bg-slate-800 rounded-lg p-0.5 text-xs font-medium mr-2">
             <button
               onClick={() => setViewMode('week')}
@@ -324,7 +344,10 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                     return (
                       <div
                         key={event.id}
-                        onClick={() => onEventClick && onEventClick(event)}
+                        onClick={() => {
+                          setSelectedEvent(event);
+                          onEventClick && onEventClick(event);
+                        }}
                         style={{
                           top: `${top}px`,
                           height: `${height}px`,
@@ -343,25 +366,46 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                             </span>
                           </div>
 
-                          {/* Universal Lock Button (§29.3) */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onToggleLock(event.id);
-                            }}
-                            title={event.is_locked ? 'Bloqueado por HC-02 (Inamovible)' : 'Desbloqueado (Optimizable por el solver)'}
-                            className={`p-1 rounded transition-colors ${
-                              event.is_locked
-                                ? 'text-amber-400 bg-amber-950/60 hover:bg-amber-900/80'
-                                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                            }`}
-                          >
-                            {event.is_locked ? (
-                              <Lock className="w-3.5 h-3.5" />
-                            ) : (
-                              <Unlock className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {/* Universal Lock Button (§29.3) */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleLock(event.id);
+                              }}
+                              title={event.is_locked ? 'Bloqueado por HC-02 (Inamovible)' : 'Desbloqueado (Optimizable por el solver)'}
+                              className={`p-1 rounded transition-colors ${
+                                event.is_locked
+                                  ? 'text-amber-400 bg-amber-950/60 hover:bg-amber-900/80'
+                                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                              }`}
+                            >
+                              {event.is_locked ? (
+                                <Lock className="w-3.5 h-3.5" />
+                              ) : (
+                                <Unlock className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
+                              )}
+                            </button>
+
+                            {/* Delete Event Button */}
+                            {onDeleteEvent && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (window.confirm(`¿Eliminar "${event.name}"?`)) {
+                                    onDeleteEvent(event.id);
+                                    if (selectedEvent?.id === event.id) {
+                                      setSelectedEvent(null);
+                                    }
+                                  }
+                                }}
+                                title="Eliminar evento"
+                                className="p-1 rounded text-slate-400 hover:text-rose-300 hover:bg-rose-950/70 transition-colors opacity-70 hover:opacity-100"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             )}
-                          </button>
+                          </div>
                         </div>
 
                         {/* Event Details (shown if card height permits) */}
@@ -389,6 +433,107 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Event Details Modal */}
+      {selectedEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4 text-slate-100">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">{selectedEvent.emoji || '📅'}</span>
+                <div>
+                  <h3 className="text-base font-bold text-white">{selectedEvent.name}</h3>
+                  <span className="text-xs px-2 py-0.5 rounded-full uppercase font-mono font-semibold bg-slate-800 text-indigo-300 border border-slate-700">
+                    {selectedEvent.category}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedEvent(null)}
+                className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
+              <div>
+                <span className="text-slate-400 block">Horario:</span>
+                <span className="font-semibold text-slate-200">
+                  {new Date(selectedEvent.start).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} ({selectedEvent.duration}m)
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block">Ubicación:</span>
+                <span className="font-semibold text-slate-200">
+                  {selectedEvent.location?.name || 'No especificada'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block">Carga Cognitiva:</span>
+                <span className="font-semibold text-slate-200">
+                  Nivel {selectedEvent.cognitiveLoad ?? 1} / 3
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block">Carga Física:</span>
+                <span className="font-semibold text-slate-200">
+                  Nivel {selectedEvent.physicalLoad ?? 0} / 2
+                </span>
+              </div>
+              {selectedEvent.is_sensitive && (
+                <div className="col-span-2 text-rose-400 font-semibold flex items-center gap-1.5 pt-1">
+                  <span className="w-2 h-2 rounded-full bg-rose-500" />
+                  Evento privado / sensible (Principio P4)
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+              <button
+                onClick={() => {
+                  onToggleLock(selectedEvent.id);
+                  setSelectedEvent({
+                    ...selectedEvent,
+                    is_locked: !selectedEvent.is_locked,
+                  });
+                }}
+                className={`px-3 py-2 text-xs font-semibold rounded-xl border flex items-center gap-1.5 transition-colors ${
+                  selectedEvent.is_locked
+                    ? 'bg-amber-950/60 text-amber-300 border-amber-800/60 hover:bg-amber-900/80'
+                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
+                }`}
+              >
+                {selectedEvent.is_locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                {selectedEvent.is_locked ? 'Bloqueado (HC-02)' : 'Desbloqueado'}
+              </button>
+
+              <div className="flex items-center gap-2">
+                {onDeleteEvent && (
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`¿Estás seguro de que deseas eliminar "${selectedEvent.name}"?`)) {
+                        onDeleteEvent(selectedEvent.id);
+                        setSelectedEvent(null);
+                      }
+                    }}
+                    className="px-3.5 py-2 text-xs font-bold rounded-xl bg-rose-950/70 hover:bg-rose-900 text-rose-300 hover:text-rose-100 border border-rose-800/80 transition-colors flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-400" />
+                    Eliminar Evento
+                  </button>
+                )}
+                <button
+                  onClick={() => setSelectedEvent(null)}
+                  className="px-3.5 py-2 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

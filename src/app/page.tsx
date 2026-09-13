@@ -413,6 +413,37 @@ export default function MiMesaHome() {
     }
   };
 
+  // Manual Event Deletion
+  const handleDeleteEvent = async (eventId: string) => {
+    const updated = schedule.filter((e) => e.id !== eventId);
+    setSchedule(updated);
+    store.saveEvents(updated);
+
+    if (isSupabaseConfigured) {
+      await syncClient.deleteEvent(eventId);
+    }
+  };
+
+  // Full Week Wipe
+  const handleClearWeek = async () => {
+    if (schedule.length === 0) return;
+    if (
+      window.confirm(
+        '¿Vaciar todos los eventos de la semana? Esta acción eliminará los eventos en este dispositivo y en la nube.'
+      )
+    ) {
+      const idsToDelete = schedule.map((e) => e.id);
+      setSchedule([]);
+      store.saveEvents([]);
+
+      if (isSupabaseConfigured) {
+        for (const id of idsToDelete) {
+          await syncClient.deleteEvent(id);
+        }
+      }
+    }
+  };
+
   // Run Solver
   const runCSP = () => {
     const result: SolverResult = solveMiMesa({
@@ -674,6 +705,8 @@ export default function MiMesaHome() {
             events={schedule}
             weather={weather}
             onToggleLock={handleToggleLock}
+            onDeleteEvent={handleDeleteEvent}
+            onClearWeek={handleClearWeek}
           />
         </section>
       </main>
