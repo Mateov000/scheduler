@@ -33,6 +33,7 @@ interface EventFormModalProps {
   ) => void;
   initialEvent?: Event | null;
   defaultDate?: Date | null;
+  existingEvents?: Event[];
   travelBufferCasino?: number;
   travelBufferFerro?: number;
   travelBufferFacultad?: number;
@@ -82,6 +83,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
   onSave,
   initialEvent,
   defaultDate,
+  existingEvents = [],
   travelBufferCasino = 30,
   travelBufferFerro = 45,
   travelBufferFacultad = 40,
@@ -138,12 +140,53 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       setIsLocked(initialEvent.is_locked ?? false);
       setIsSensitive(initialEvent.is_sensitive ?? false);
       setCannabisConsumed(initialEvent.cannabis_consumed ?? false);
-      setIsRecurring(!!initialEvent.recurrenceId);
-      setRecurrenceFreq('weekly');
-      setRecurrenceDays([d.getDay() as DayOfWeek]);
-      const fourWeeksLater = new Date(d);
-      fourWeeksLater.setDate(d.getDate() + 28);
-      setUntilDateStr(formatLocalDate(fourWeeksLater));
+
+      const hasRecurrence = !!initialEvent.recurrenceId;
+      setIsRecurring(hasRecurrence);
+      if (initialEvent.recurrenceFrequency) {
+        setRecurrenceFreq(initialEvent.recurrenceFrequency);
+      } else {
+        setRecurrenceFreq('weekly');
+      }
+
+      if (initialEvent.recurrenceUntil) {
+        setUntilDateStr(formatLocalDate(new Date(initialEvent.recurrenceUntil)));
+      }
+
+      if (hasRecurrence && existingEvents && existingEvents.length > 0) {
+        const seriesEvents = existingEvents.filter(
+          (e) => e.recurrenceId === initialEvent.recurrenceId
+        );
+        if (seriesEvents.length > 0) {
+          const days = Array.from(
+            new Set(seriesEvents.map((e) => new Date(e.start).getDay() as DayOfWeek))
+          ).sort();
+          setRecurrenceDays(days.length > 0 ? days : [d.getDay() as DayOfWeek]);
+
+          if (!initialEvent.recurrenceUntil) {
+            const latestStart = seriesEvents.reduce(
+              (max, e) => (new Date(e.start) > max ? new Date(e.start) : max),
+              d
+            );
+            setUntilDateStr(formatLocalDate(latestStart));
+          }
+        } else {
+          setRecurrenceDays([d.getDay() as DayOfWeek]);
+          if (!initialEvent.recurrenceUntil) {
+            const fourWeeksLater = new Date(d);
+            fourWeeksLater.setDate(d.getDate() + 28);
+            setUntilDateStr(formatLocalDate(fourWeeksLater));
+          }
+        }
+      } else {
+        setRecurrenceDays([d.getDay() as DayOfWeek]);
+        if (!initialEvent.recurrenceUntil) {
+          const fourWeeksLater = new Date(d);
+          fourWeeksLater.setDate(d.getDate() + 28);
+          setUntilDateStr(formatLocalDate(fourWeeksLater));
+        }
+      }
+
       setIncludeTravelIda(false);
       setIncludeTravelVuelta(false);
       setTravelBufferMinutes(30);
@@ -367,39 +410,35 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       finalLocName = match?.name || locationType;
     }
 
-    const baseEventId = initialEvent?.id || `ev_${Date.now()}`;
-    const newEvent: Event = {
-      id: baseEventId,
-      name: name.trim() || `${category.toUpperCase()}`,
-      category,
-      emoji,
-      start: startDate,
-      duration,
-      is_locked: isLocked,
-      location: {
-        type: locationType,
-        name: finalLocName,
-      },
-      weatherSensitivity,
-      cognitiveLoad,
-      physicalLoad,
-      is_sensitive: isSensitive,
-      cannabis_consumed: cannabisConsumed,
-      createdAt: initialEvent?.createdAt || new Date(),
-      updatedAt: new Date(),
-      deviceId: 'local',
-      localVersion: (initialEvent?.localVersion ?? 0) + 1,
-      syncStatus: 'pending',
-    };
-
     const effectiveBuffer = travelBufferMinutes || defaultSuggestedBuffer;
 
-    if (impactScope === 'this_event') {
-      // Mark as exception if it was part of a recurring series
-      if (initialEvent?.recurrenceId) {
-        newEvent.isRecurrenceException = true;
-        newEvent.recurrenceId = initialEvent.recurrenceId;
-      }
+    // SCENARIO 1: Explicit "Solo este evento" when editing an existing recurring event
+    if (isEdit && initialEvent?.recurrenceId && impactScope === 'this_event') {
+      const newEvent: Event = {
+        id: initialEvent.id,
+        name: name.trim() || `${category.toUpperCase()}`,
+        category,
+        emoji,
+        start: startDate,
+        duration,
+        is_locked: isLocked,
+        location: {
+          type: locationType,
+          name: finalLocName,
+        },
+        weatherSensitivity,
+        cognitiveLoad,
+        physicalLoad,
+        is_sensitive: isSensitive,
+        cannabis_consumed: cannabisConsumed,
+        recurrenceId: initialEvent.recurrenceId,
+        isRecurrenceException: true,
+        createdAt: initialEvent.createdAt || new Date(),
+        updatedAt: new Date(),
+        deviceId: 'local',
+        localVersion: (initialEvent.localVersion ?? 0) + 1,
+        syncStatus: 'pending',
+      };
 
       const singleTravelEvents: Event[] = [];
       if (includeTravelIda) {
@@ -452,33 +491,94 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       return;
     }
 
-    // impactScope === 'this_and_following'
-    let recurringInstances: Event[] | undefined;
-    const allTravelEvents: Event[] = [];
+    // SCENARIO 2: Recurrence is enabled (isRecurring === true)
+    // Applies to:
+    // - New event with recurrence checked
+    // - Editing non-recurring event and enabling recurrence
+    // - Editing recurring event with "Este y los eventos siguientes"
+    if (isRecurring) {
+      let untilDate: Date;
+      if (untilDateStr) {
+        const [uYear, uMonth, uDay] = untilDateStr.split('-').map((v) => parseInt(v, 10) || 0);
+        untilDate = new Date(uYear, uMonth - 1, uDay, 23, 59, 59, 999);
+      } else {
+        untilDate = new Date(startDate);
+        untilDate.setDate(untilDate.getDate() + 28);
+        untilDate.setHours(23, 59, 59, 999);
+      }
 
-    if (isRecurring && untilDateStr) {
-      const [uYear, uMonth, uDay] = untilDateStr.split('-').map((v) => parseInt(v, 10) || 0);
-      const untilDate = new Date(uYear, uMonth - 1, uDay, 23, 59, 59, 999);
+      // Ensure untilDate is not before startDate
+      if (untilDate.getTime() < startDate.getTime()) {
+        untilDate = new Date(startDate);
+        untilDate.setDate(untilDate.getDate() + 28);
+        untilDate.setHours(23, 59, 59, 999);
+      }
 
       const patternId = initialEvent?.recurrenceId
         ? `${initialEvent.recurrenceId}_fwd_${Date.now()}`
         : `rec_${Date.now()}`;
 
+      const baseEventId = initialEvent?.id || `ev_${Date.now()}`;
+      const newEvent: Event = {
+        id: baseEventId,
+        name: name.trim() || `${category.toUpperCase()}`,
+        category,
+        emoji,
+        start: startDate,
+        duration,
+        is_locked: isLocked,
+        location: {
+          type: locationType,
+          name: finalLocName,
+        },
+        weatherSensitivity,
+        cognitiveLoad,
+        physicalLoad,
+        is_sensitive: isSensitive,
+        cannabis_consumed: cannabisConsumed,
+        recurrenceId: patternId,
+        recurrenceFrequency: recurrenceFreq,
+        recurrenceUntil: untilDate,
+        createdAt: initialEvent?.createdAt || new Date(),
+        updatedAt: new Date(),
+        deviceId: 'local',
+        localVersion: (initialEvent?.localVersion ?? 0) + 1,
+        syncStatus: 'pending',
+      };
+
+      // Ensure effectiveRecurrenceDays has the day of startDate if weekly and empty
+      const startDow = new Date(startDate).getDay() as DayOfWeek;
+      let effectiveRecurrenceDays = recurrenceDays;
+      if (recurrenceFreq === 'weekly') {
+        if (!effectiveRecurrenceDays || effectiveRecurrenceDays.length === 0) {
+          effectiveRecurrenceDays = [startDow];
+        }
+      }
+
       const pattern: RecurrencePattern = {
         id: patternId,
         frequency: recurrenceFreq,
-        daysOfWeek: recurrenceFreq === 'weekly' ? recurrenceDays : undefined,
+        daysOfWeek: recurrenceFreq === 'weekly' ? effectiveRecurrenceDays : undefined,
         startDate: new Date(startDate),
         until: untilDate,
         exceptions: [],
       };
 
-      newEvent.recurrenceId = patternId;
+      const windowStartDate = new Date(startDate);
+      windowStartDate.setHours(0, 0, 0, 0);
+      const windowEndDate = new Date(untilDate);
+      windowEndDate.setHours(23, 59, 59, 999);
 
-      // Expand instances up to untilDate
-      recurringInstances = expandRecurrencePattern(pattern, newEvent, startDate, untilDate);
+      // Expand instances from windowStartDate up to untilDate
+      let recurringInstances = expandRecurrencePattern(pattern, newEvent, windowStartDate, windowEndDate);
 
-      // Generate travel events for each recurring instance
+      // Safety guarantee: ensure at least the base event is included in recurringInstances
+      if (!recurringInstances || recurringInstances.length === 0) {
+        recurringInstances = [newEvent];
+      }
+
+      // Generate travel events for all recurring instances
+      const allTravelEvents: Event[] = [];
       if (includeTravelIda || includeTravelVuelta) {
         recurringInstances.forEach((inst, idx) => {
           const instDate = new Date(inst.start);
@@ -528,58 +628,95 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
           }
         });
       }
-    } else {
-      // Recurrence was disabled
-      newEvent.recurrenceId = undefined;
-      if (includeTravelIda) {
-        allTravelEvents.push({
-          id: `ev_traslado_ida_${Date.now()}`,
-          name: `Traslado a ${detectedVenueName}`,
-          category: 'traslado',
-          emoji: '🚌',
-          start: new Date(startDate.getTime() - effectiveBuffer * 60000),
-          duration: effectiveBuffer,
-          is_locked: isLocked,
-          location: { type: locationType, name: detectedVenueName },
-          weatherSensitivity: 'transit_only',
-          cognitiveLoad: 0,
-          physicalLoad: 0,
-          is_sensitive: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          deviceId: 'local',
-          localVersion: 1,
-          syncStatus: 'pending',
-        });
-      }
-      if (includeTravelVuelta) {
-        allTravelEvents.push({
-          id: `ev_traslado_vuelta_${Date.now() + 1}`,
-          name: `Traslado desde ${detectedVenueName}`,
-          category: 'traslado',
-          emoji: '🚌',
-          start: new Date(startDate.getTime() + duration * 60000),
-          duration: effectiveBuffer,
-          is_locked: isLocked,
-          location: { type: 'casa', name: 'Casa' },
-          weatherSensitivity: 'transit_only',
-          cognitiveLoad: 0,
-          physicalLoad: 0,
-          is_sensitive: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          deviceId: 'local',
-          localVersion: 1,
-          syncStatus: 'pending',
-        });
-      }
+
+      onSave(
+        newEvent,
+        allTravelEvents.length > 0 ? allTravelEvents : undefined,
+        recurringInstances,
+        impactScope,
+        initialEvent
+      );
+      setShowScopeModal(false);
+      onClose();
+      return;
+    }
+
+    // SCENARIO 3: Single event (not recurring or user turned off recurrence)
+    const baseEventId = initialEvent?.id || `ev_${Date.now()}`;
+    const newEvent: Event = {
+      id: baseEventId,
+      name: name.trim() || `${category.toUpperCase()}`,
+      category,
+      emoji,
+      start: startDate,
+      duration,
+      is_locked: isLocked,
+      location: {
+        type: locationType,
+        name: finalLocName,
+      },
+      weatherSensitivity,
+      cognitiveLoad,
+      physicalLoad,
+      is_sensitive: isSensitive,
+      cannabis_consumed: cannabisConsumed,
+      recurrenceId: undefined, // Recurrence is off
+      createdAt: initialEvent?.createdAt || new Date(),
+      updatedAt: new Date(),
+      deviceId: 'local',
+      localVersion: (initialEvent?.localVersion ?? 0) + 1,
+      syncStatus: 'pending',
+    };
+
+    const singleTravelEvents: Event[] = [];
+    if (includeTravelIda) {
+      singleTravelEvents.push({
+        id: `ev_traslado_ida_${Date.now()}`,
+        name: `Traslado a ${detectedVenueName}`,
+        category: 'traslado',
+        emoji: '🚌',
+        start: new Date(startDate.getTime() - effectiveBuffer * 60000),
+        duration: effectiveBuffer,
+        is_locked: isLocked,
+        location: { type: locationType, name: detectedVenueName },
+        weatherSensitivity: 'transit_only',
+        cognitiveLoad: 0,
+        physicalLoad: 0,
+        is_sensitive: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deviceId: 'local',
+        localVersion: 1,
+        syncStatus: 'pending',
+      });
+    }
+    if (includeTravelVuelta) {
+      singleTravelEvents.push({
+        id: `ev_traslado_vuelta_${Date.now() + 1}`,
+        name: `Traslado desde ${detectedVenueName}`,
+        category: 'traslado',
+        emoji: '🚌',
+        start: new Date(startDate.getTime() + duration * 60000),
+        duration: effectiveBuffer,
+        is_locked: isLocked,
+        location: { type: 'casa', name: 'Casa' },
+        weatherSensitivity: 'transit_only',
+        cognitiveLoad: 0,
+        physicalLoad: 0,
+        is_sensitive: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deviceId: 'local',
+        localVersion: 1,
+        syncStatus: 'pending',
+      });
     }
 
     onSave(
       newEvent,
-      allTravelEvents.length > 0 ? allTravelEvents : undefined,
-      recurringInstances,
-      'this_and_following',
+      singleTravelEvents.length > 0 ? singleTravelEvents : undefined,
+      undefined,
+      impactScope,
       initialEvent
     );
     setShowScopeModal(false);
@@ -593,7 +730,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       setShowScopeModal(true);
       return;
     }
-    executeSave('this_event');
+    executeSave('this_and_following');
   };
 
   return (
@@ -701,7 +838,15 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
                   type="date"
                   required
                   value={startDateStr}
-                  onChange={(e) => setStartDateStr(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setStartDateStr(val);
+                    if (val && !initialEvent?.recurrenceId) {
+                      const [y, m, d] = val.split('-').map(Number);
+                      const pickedDate = new Date(y, (m || 1) - 1, d || 1);
+                      setRecurrenceDays([pickedDate.getDay() as DayOfWeek]);
+                    }
+                  }}
                   className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:border-indigo-500 focus:outline-none"
                 />
               </div>
@@ -1050,7 +1195,23 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
                 <input
                   type="checkbox"
                   checked={isRecurring}
-                  onChange={(e) => setIsRecurring(e.target.checked)}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setIsRecurring(checked);
+                    if (checked) {
+                      const [year, month, day] = (startDateStr || formatLocalDate(new Date())).split('-').map(Number);
+                      const base = new Date(year, (month || 1) - 1, day || 1);
+                      if (!untilDateStr) {
+                        const future = new Date(base);
+                        future.setDate(future.getDate() + 28);
+                        setUntilDateStr(formatLocalDate(future));
+                      }
+                      const baseDow = base.getDay() as DayOfWeek;
+                      if (!initialEvent?.recurrenceId) {
+                        setRecurrenceDays([baseDow]);
+                      }
+                    }
+                  }}
                   className="rounded bg-slate-800 border-slate-700 text-purple-600 focus:ring-0"
                 />
                 <span className="font-semibold text-purple-300">Repetir periódicamente</span>

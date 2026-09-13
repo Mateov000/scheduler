@@ -63,6 +63,8 @@ export interface Event {
   recurrenceId?: string;
   isRecurrenceException?: boolean;
   exceptionFor?: Date;
+  recurrenceFrequency?: RecurrenceFrequency;
+  recurrenceUntil?: Date;
 
   // Ubicación y clima
   location: Location;

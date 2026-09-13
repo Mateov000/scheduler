@@ -268,6 +268,135 @@ describe('Event Builder Business Logic', () => {
       expect(nextSchedule[3].start.getDate()).toBe(6);
     });
 
+    it('creates new recurring series with multiple instances, recurrenceId, and until date', () => {
+      const startDate = new Date(2026, 8, 14, 10, 0); // Monday Sep 14
+      const untilDate = new Date(2026, 9, 5, 23, 59, 59); // 4 weeks
+      const patternId = 'rec_work_weekly';
+
+      const baseEvent: Event = {
+        id: 'ev_work_1',
+        name: 'Turno Casino',
+        category: 'trabajo',
+        start: startDate,
+        duration: 360,
+        is_locked: false,
+        recurrenceId: patternId,
+        recurrenceFrequency: 'weekly',
+        recurrenceUntil: untilDate,
+        location: { type: 'rambla_casino', name: 'Casino Rambla' },
+        weatherSensitivity: 'transit_only',
+        cognitiveLoad: 1,
+        physicalLoad: 1,
+        is_sensitive: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deviceId: 'local',
+        localVersion: 1,
+        syncStatus: 'pending',
+      };
+
+      const pattern = {
+        id: patternId,
+        frequency: 'weekly' as const,
+        daysOfWeek: [1, 3] as (0 | 1 | 2 | 3 | 4 | 5 | 6)[], // Lun y Mié
+        startDate,
+        until: untilDate,
+        exceptions: [],
+      };
+
+      const instances = expandRecurrencePattern(
+        pattern,
+        baseEvent,
+        new Date(2026, 8, 14, 0, 0),
+        new Date(2026, 9, 5, 23, 59, 59)
+      );
+
+      // Mondays & Wednesdays over ~3 weeks: Sep 14(M), 16(W), 21(M), 23(W), 28(M), 30(W), Oct 5(M) -> 7 instances
+      expect(instances.length).toBeGreaterThanOrEqual(4);
+      instances.forEach((inst) => {
+        expect(inst.recurrenceId).toBe(patternId);
+        expect(inst.name).toBe('Turno Casino');
+        expect(inst.duration).toBe(360);
+        expect([1, 3]).toContain(inst.start.getDay());
+      });
+    });
+
+    it('converts an existing single event into a recurring series upon edit', () => {
+      // 1. Initial schedule with a single non-recurring event
+      const singleEvent: Event = {
+        id: 'ev_single_dentist',
+        name: 'Terapia / Consulta',
+        category: 'desarrollo_personal',
+        start: new Date(2026, 8, 15, 16, 0), // Tue Sep 15
+        duration: 60,
+        is_locked: false,
+        location: { type: 'casa', name: 'Casa' },
+        weatherSensitivity: 'none',
+        cognitiveLoad: 1,
+        physicalLoad: 0,
+        is_sensitive: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deviceId: 'local',
+        localVersion: 1,
+        syncStatus: 'synced',
+      };
+
+      let schedule: Event[] = [singleEvent];
+
+      // 2. User edits and enables weekly repetition for 3 weeks
+      const patternId = 'rec_therapy_series';
+      const untilDate = new Date(2026, 8, 29, 23, 59, 59);
+      const pattern = {
+        id: patternId,
+        frequency: 'weekly' as const,
+        daysOfWeek: [2] as (0 | 1 | 2 | 3 | 4 | 5 | 6)[], // Martes
+        startDate: new Date(2026, 8, 15, 16, 0),
+        until: untilDate,
+        exceptions: [],
+      };
+
+      const recurringInstances = expandRecurrencePattern(
+        pattern,
+        {
+          ...singleEvent,
+          recurrenceId: patternId,
+          recurrenceFrequency: 'weekly',
+          recurrenceUntil: untilDate,
+        },
+        new Date(2026, 8, 15, 0, 0),
+        new Date(2026, 8, 29, 23, 59, 59)
+      );
+
+      expect(recurringInstances).toHaveLength(3); // Sep 15, Sep 22, Sep 29
+
+      // 3. handleSaveEvent logic: replace single event with recurring instances
+      const filtered = schedule.filter((e) => e.id !== singleEvent.id);
+      schedule = [...filtered, ...recurringInstances];
+
+      expect(schedule).toHaveLength(3);
+      expect(schedule.find((e) => e.id === singleEvent.id)).toBeUndefined();
+      schedule.forEach((e) => {
+        expect(e.recurrenceId).toBe(patternId);
+        expect(e.start.getDay()).toBe(2); // All on Tuesdays
+      });
+
+      // 4. When opening any instance to edit, inspecting schedule by recurrenceId recovers all days and until date
+      const openedEvent = schedule[1]; // Sep 22
+      expect(openedEvent.recurrenceId).toBe(patternId);
+      const seriesEvents = schedule.filter((e) => e.recurrenceId === openedEvent.recurrenceId);
+      expect(seriesEvents).toHaveLength(3);
+
+      const daysOfWeek = Array.from(new Set(seriesEvents.map((e) => e.start.getDay()))).sort();
+      expect(daysOfWeek).toEqual([2]);
+
+      const latestDate = seriesEvents.reduce(
+        (max, e) => (e.start > max ? e.start : max),
+        seriesEvents[0].start
+      );
+      expect(latestDate.getDate()).toBe(29);
+    });
+
     it('deletes only the selected occurrence when scope is this_event', () => {
       const schedule = createMondaySeries();
       const target = schedule[1]; // Sep 21

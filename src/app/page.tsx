@@ -590,21 +590,32 @@ export default function MiMesaHome() {
 
       showToast(`✓ Serie actualizada a partir del ${new Date(savedEvent.start).toLocaleDateString('es-AR')}`);
     } else if (originalEvent) {
-      // Single event edit (or this_event scope)
-      const index = nextSchedule.findIndex((e) => e.id === originalEvent.id);
-      if (index >= 0) {
-        nextSchedule[index] = savedEvent;
+      // Editing an existing event:
+      if (recurringInstances && recurringInstances.length > 0) {
+        // Converted a single event into a recurring series!
+        const filtered = nextSchedule.filter((e) => e.id !== originalEvent.id);
+        nextSchedule = [...filtered, ...recurringInstances];
+        if (travelEvents && travelEvents.length > 0) {
+          nextSchedule.push(...travelEvents);
+        }
+        showToast(`✓ Serie periódica creada (${recurringInstances.length} repeticiones)`);
       } else {
-        nextSchedule.push(savedEvent);
-      }
+        // Single event edit (or this_event scope)
+        const index = nextSchedule.findIndex((e) => e.id === originalEvent.id);
+        if (index >= 0) {
+          nextSchedule[index] = savedEvent;
+        } else {
+          nextSchedule.push(savedEvent);
+        }
 
-      if (travelEvents && travelEvents.length > 0) {
-        nextSchedule.push(...travelEvents);
-      }
+        if (travelEvents && travelEvents.length > 0) {
+          nextSchedule.push(...travelEvents);
+        }
 
-      showToast(`✓ Cambios guardados para "${savedEvent.name}"`);
+        showToast(`✓ Cambios guardados para "${savedEvent.name}"`);
+      }
     } else {
-      // Creating new event
+      // Creating new event or new recurring series
       const eventsToAdd = recurringInstances && recurringInstances.length > 0 ? recurringInstances : [savedEvent];
       nextSchedule.push(...eventsToAdd);
 
@@ -612,7 +623,11 @@ export default function MiMesaHome() {
         nextSchedule.push(...travelEvents);
       }
 
-      showToast(`✓ Evento "${savedEvent.name}" agregado al calendario`);
+      showToast(
+        recurringInstances && recurringInstances.length > 0
+          ? `✓ Serie periódica creada (${recurringInstances.length} repeticiones)`
+          : `✓ Evento "${savedEvent.name}" agregado al calendario`
+      );
     }
 
     setSchedule(nextSchedule);
@@ -1078,6 +1093,7 @@ export default function MiMesaHome() {
         onSave={handleSaveEvent}
         initialEvent={editingEvent}
         defaultDate={defaultModalDate || currentAnchorDate}
+        existingEvents={schedule}
         travelBufferCasino={params.travel_buffer_casino}
         travelBufferFerro={params.travel_buffer_ferro}
         travelBufferFacultad={params.travel_buffer_facultad}
