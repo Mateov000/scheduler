@@ -24,9 +24,16 @@ interface EventFormModalProps {
   onClose: () => void;
   onSave: (event: Event, travelEvents?: Event[], recurringInstances?: Event[]) => void;
   initialEvent?: Event | null;
-  defaultDate?: Date;
+  defaultDate?: Date | null;
   travelBufferCasino?: number;
   travelBufferFerro?: number;
+}
+
+function formatLocalDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 const CATEGORIES: { id: EventCategory; label: string; emoji: string; color: string }[] = [
@@ -65,7 +72,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
   onClose,
   onSave,
   initialEvent,
-  defaultDate = new Date(),
+  defaultDate,
   travelBufferCasino = 30,
   travelBufferFerro = 45,
 }) => {
@@ -78,10 +85,10 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
   const [startDateStr, setStartDateStr] = useState<string>('');
   const [startTimeStr, setStartTimeStr] = useState<string>('10:00');
   const [duration, setDuration] = useState<number>(120);
-  const [locationType, setLocationType] = useState<LocationType>('casa');
+  const [locationType, setLocationType] = useState<LocationType>('rambla_casino');
   const [customLocationName, setCustomLocationName] = useState<string>('');
   const [cognitiveLoad, setCognitiveLoad] = useState<0 | 1 | 2 | 3>(1);
-  const [physicalLoad, setPhysicalLoad] = useState<0 | 1 | 2 | 3>(0);
+  const [physicalLoad, setPhysicalLoad] = useState<0 | 1 | 2 | 3>(1);
   const [weatherSensitivity, setWeatherSensitivity] = useState<WeatherSensitivity>('none');
   const [isLocked, setIsLocked] = useState<boolean>(false);
   const [isSensitive, setIsSensitive] = useState<boolean>(false);
@@ -96,7 +103,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
   const [recurrenceDays, setRecurrenceDays] = useState<DayOfWeek[]>([1]); // default lunes
   const [untilDateStr, setUntilDateStr] = useState<string>('');
 
-  // Reset or initialize fields
+  // Reset or initialize fields ONLY when modal opens or initialEvent changes
   useEffect(() => {
     if (!isOpen) return;
 
@@ -105,32 +112,36 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       setCategory(initialEvent.category);
       setEmoji(initialEvent.emoji || '📅');
       const d = new Date(initialEvent.start);
-      setStartDateStr(d.toISOString().slice(0, 10));
+      setStartDateStr(formatLocalDate(d));
       setStartTimeStr(
         `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
       );
       setDuration(initialEvent.duration);
-      setLocationType(initialEvent.location.type);
-      setCustomLocationName(initialEvent.location.name);
-      setCognitiveLoad(initialEvent.cognitiveLoad);
-      setPhysicalLoad(initialEvent.physicalLoad);
-      setWeatherSensitivity(initialEvent.weatherSensitivity);
-      setIsLocked(initialEvent.is_locked);
-      setIsSensitive(initialEvent.is_sensitive);
+      setLocationType(initialEvent.location?.type || 'casa');
+      setCustomLocationName(initialEvent.location?.name || '');
+      setCognitiveLoad(initialEvent.cognitiveLoad ?? 1);
+      setPhysicalLoad(initialEvent.physicalLoad ?? 0);
+      setWeatherSensitivity(initialEvent.weatherSensitivity || 'none');
+      setIsLocked(initialEvent.is_locked ?? false);
+      setIsSensitive(initialEvent.is_sensitive ?? false);
       setCannabisConsumed(initialEvent.cannabis_consumed ?? false);
       setIsRecurring(!!initialEvent.recurrenceId);
     } else {
       setName('');
       setCategory('trabajo');
       setEmoji('💼');
-      const d = new Date(defaultDate);
-      setStartDateStr(d.toISOString().slice(0, 10));
-      setStartTimeStr('10:00');
+      const d = defaultDate ? new Date(defaultDate) : new Date();
+      setStartDateStr(formatLocalDate(d));
+      setStartTimeStr(
+        defaultDate
+          ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+          : '10:00'
+      );
       setDuration(120);
-      setLocationType('casa');
+      setLocationType('rambla_casino');
       setCustomLocationName('');
       setCognitiveLoad(1);
-      setPhysicalLoad(0);
+      setPhysicalLoad(1);
       setWeatherSensitivity('none');
       setIsLocked(false);
       setIsSensitive(false);
@@ -142,13 +153,13 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       // Default until 4 weeks later
       const fourWeeksLater = new Date(d);
       fourWeeksLater.setDate(d.getDate() + 28);
-      setUntilDateStr(fourWeeksLater.toISOString().slice(0, 10));
+      setUntilDateStr(formatLocalDate(fourWeeksLater));
     }
-  }, [isOpen, initialEvent, defaultDate]);
+  }, [isOpen, initialEvent]); // STABLE DEPENDENCIES: Never re-runs when inputs or buttons change!
 
   if (!isOpen) return null;
 
-  // Sync category change with emoji & defaults
+  // Sync category change with emoji & smart defaults
   const handleCategorySelect = (cat: EventCategory) => {
     setCategory(cat);
     const meta = CATEGORIES.find((c) => c.id === cat);
@@ -162,25 +173,47 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
     } else if (cat === 'cursada') {
       setLocationType('facultad');
       setCognitiveLoad(2);
+      setPhysicalLoad(0);
       setDuration(120);
     } else if (cat === 'estudio') {
       setLocationType('casa');
       setCognitiveLoad(3);
+      setPhysicalLoad(0);
       setDuration(120);
     } else if (cat === 'gym') {
       setLocationType('gym');
       setPhysicalLoad(3);
+      setCognitiveLoad(0);
       setDuration(60);
+    } else if (cat === 'social') {
+      setLocationType('exterior_rambla');
+      setCognitiveLoad(0);
+      setPhysicalLoad(0);
+    } else if (cat === 'batch_cooking') {
+      setLocationType('casa');
+      setCognitiveLoad(1);
+      setPhysicalLoad(1);
+      setDuration(120);
     } else if (cat === 'recuperacion') {
       setLocationType('casa');
       setIsSensitive(true);
+      setCognitiveLoad(0);
+      setPhysicalLoad(0);
+    } else if (cat === 'comida') {
+      setLocationType('casa');
+      setDuration(45);
+    } else if (cat === 'sueno') {
+      setLocationType('casa');
+      setDuration(480);
     }
   };
 
   // Calculate End Time from Start + Duration
   const calculateEndTimeStr = () => {
-    const [h, m] = startTimeStr.split(':').map((v) => parseInt(v, 10) || 0);
-    const totalMinutes = h * 60 + m + duration;
+    const parts = (startTimeStr || '10:00').split(':').map((v) => parseInt(v, 10) || 0);
+    const h = parts[0] ?? 10;
+    const m = parts[1] ?? 0;
+    const totalMinutes = h * 60 + m + (duration || 60);
     const endH = Math.floor(totalMinutes / 60) % 24;
     const endM = totalMinutes % 60;
     return `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
@@ -188,6 +221,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
 
   // Handle End Time change -> calculate duration
   const handleEndTimeChange = (newEndTime: string) => {
+    if (!newEndTime) return;
     const [startH, startM] = startTimeStr.split(':').map((v) => parseInt(v, 10) || 0);
     const [endH, endM] = newEndTime.split(':').map((v) => parseInt(v, 10) || 0);
 
@@ -211,6 +245,27 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
   const hasTravelBufferDetected = isWorkShift && (isRambla || isFerro);
   const detectedTravelBufferMinutes = isFerro ? travelBufferFerro : travelBufferCasino;
   const detectedWorkplaceName = isFerro ? 'Ferro San Juan' : 'Casino Rambla';
+
+  // Computed preview for travel buffers
+  const calculateTravelTimes = () => {
+    if (!hasTravelBufferDetected || !autoTravelBuffers) return null;
+    const parts = (startTimeStr || '10:00').split(':').map((v) => parseInt(v, 10) || 0);
+    const startMins = (parts[0] ?? 10) * 60 + (parts[1] ?? 0);
+    const idaStartMins = (startMins - detectedTravelBufferMinutes + 24 * 60) % (24 * 60);
+    const idaH = Math.floor(idaStartMins / 60);
+    const idaM = idaStartMins % 60;
+    const idaTime = `${String(idaH).padStart(2, '0')}:${String(idaM).padStart(2, '0')}`;
+
+    const endParts = calculateEndTimeStr().split(':').map((v) => parseInt(v, 10) || 0);
+    const endMins = (endParts[0] || 0) * 60 + (endParts[1] || 0);
+    const vueltaEndMins = (endMins + detectedTravelBufferMinutes) % (24 * 60);
+    const vueltaH = Math.floor(vueltaEndMins / 60);
+    const vueltaM = vueltaEndMins % 60;
+    const vueltaTime = `${String(vueltaH).padStart(2, '0')}:${String(vueltaM).padStart(2, '0')}`;
+
+    return { idaTime, vueltaTime };
+  };
+  const travelTimes = calculateTravelTimes();
 
   // Toggle Day in Weekly Recurrence
   const toggleDayOfWeek = (d: DayOfWeek) => {
@@ -356,6 +411,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors"
           >
@@ -456,7 +512,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <div className="flex flex-wrap items-center gap-2 pt-1">
               <span className="text-slate-500 mr-1">Duración rápida:</span>
               {DURATION_PRESETS.map((dur) => (
                 <button
@@ -472,9 +528,19 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
                   {dur >= 60 ? `${dur / 60}h` : `${dur}m`}
                 </button>
               ))}
-              <span className="ml-auto font-mono text-indigo-400 font-bold">
-                Total: {duration} min
-              </span>
+
+              <div className="flex items-center gap-1 ml-auto bg-slate-900 border border-slate-700 px-2 py-0.5 rounded-lg">
+                <span className="text-slate-400 text-[11px]">Manual:</span>
+                <input
+                  type="number"
+                  min="5"
+                  step="5"
+                  value={duration}
+                  onChange={(e) => setDuration(Math.max(5, parseInt(e.target.value, 10) || 5))}
+                  className="w-14 bg-transparent text-indigo-300 font-mono font-bold text-center focus:outline-none"
+                />
+                <span className="text-slate-500 font-mono text-[11px]">min</span>
+              </div>
             </div>
           </div>
 
@@ -718,6 +784,101 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+
+          {/* 7. Vista Previa en Vivo (Live Preview) */}
+          <div className="p-4 bg-gradient-to-b from-slate-900 to-slate-950 border border-indigo-500/30 rounded-xl flex flex-col gap-3 shadow-inner">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-indigo-300 font-bold">
+                <Sparkles className="w-4 h-4 text-indigo-400" />
+                <span>Vista Previa en Vivo en el Calendario</span>
+              </div>
+              <span className="text-[10px] text-slate-400 font-mono">
+                {startDateStr ? new Date(`${startDateStr}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' }) : ''}
+              </span>
+            </div>
+
+            {/* Travel IDA preview if active */}
+            {travelTimes && (
+              <div className="p-2 rounded-lg bg-zinc-900/80 border border-zinc-700/60 flex items-center justify-between text-[11px] text-zinc-300 font-mono">
+                <div className="flex items-center gap-1.5">
+                  <span>🚌</span>
+                  <span className="font-sans font-semibold">Traslado ida a {detectedWorkplaceName}</span>
+                </div>
+                <span className="text-zinc-400">
+                  {travelTimes.idaTime} - {startTimeStr} ({detectedTravelBufferMinutes}m)
+                </span>
+              </div>
+            )}
+
+            {/* Main Event Card Preview */}
+            <div className="p-3 rounded-xl border border-indigo-500/50 bg-indigo-950/50 shadow-md flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{emoji || '📅'}</span>
+                  <span className="text-sm font-bold text-white">
+                    {name.trim() || `${category.toUpperCase()}`}
+                  </span>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-500/30 text-indigo-300 border border-indigo-500/40">
+                  {category}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-300">
+                <span className="flex items-center gap-1 text-indigo-200 font-mono font-semibold">
+                  <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                  {startTimeStr} - {calculateEndTimeStr()} ({duration} min)
+                </span>
+                <span className="flex items-center gap-1 text-slate-300">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+                  {locationType === 'custom' ? (customLocationName || 'Personalizada') : PREDEFINED_LOCATIONS.find(l => l.type === locationType)?.name}
+                </span>
+              </div>
+
+              {/* Status Pills */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
+                  🧠 Cognitiva: {cognitiveLoad}/3
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
+                  💪 Física: {physicalLoad}/3
+                </span>
+                {isLocked && (
+                  <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 font-semibold text-[10px] flex items-center gap-1">
+                    <Lock className="w-3 h-3" /> Inamovible
+                  </span>
+                )}
+                {isSensitive && (
+                  <span className="px-1.5 py-0.5 rounded bg-rose-950 text-rose-300 font-semibold text-[10px] flex items-center gap-1">
+                    <Shield className="w-3 h-3" /> Privado
+                  </span>
+                )}
+                {cannabisConsumed && (
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 font-semibold text-[10px]">
+                    🌿 Cannabis
+                  </span>
+                )}
+                {isRecurring && (
+                  <span className="px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 font-semibold text-[10px] flex items-center gap-1">
+                    <Repeat className="w-3 h-3" /> {recurrenceFreq} hasta {untilDateStr}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Travel VUELTA preview if active */}
+            {travelTimes && (
+              <div className="p-2 rounded-lg bg-zinc-900/80 border border-zinc-700/60 flex items-center justify-between text-[11px] text-zinc-300 font-mono">
+                <div className="flex items-center gap-1.5">
+                  <span>🚌</span>
+                  <span className="font-sans font-semibold">Traslado vuelta desde {detectedWorkplaceName}</span>
+                </div>
+                <span className="text-zinc-400">
+                  {calculateEndTimeStr()} - {travelTimes.vueltaTime} ({detectedTravelBufferMinutes}m)
+                </span>
               </div>
             )}
           </div>

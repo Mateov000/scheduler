@@ -259,6 +259,16 @@ export default function MiMesaHome() {
   const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
   const [showEventModal, setShowEventModal] = useState<boolean>(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
+  const [currentAnchorDate, setCurrentAnchorDate] = useState<Date>(new Date());
+  const [defaultModalDate, setDefaultModalDate] = useState<Date | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 4000);
+  };
 
   // Solver Proposed State
   const [proposedSchedule, setProposedSchedule] = useState<Event[]>([]);
@@ -507,6 +517,14 @@ export default function MiMesaHome() {
     setSchedule(nextSchedule);
     store.saveEvents(nextSchedule);
 
+    // Auto-focus calendar on the date/week of the saved event
+    setCurrentAnchorDate(new Date(savedEvent.start));
+    showToast(
+      editingEvent
+        ? `✓ Cambios guardados para "${savedEvent.name}"`
+        : `✓ Evento "${savedEvent.name}" agregado al calendario`
+    );
+
     if (isSupabaseConfigured) {
       const eventsToPush = recurringInstances && recurringInstances.length > 0 ? recurringInstances : [savedEvent];
       for (const ev of eventsToPush) {
@@ -684,6 +702,7 @@ export default function MiMesaHome() {
           <button
             onClick={() => {
               setEditingEvent(null);
+              setDefaultModalDate(currentAnchorDate);
               setShowEventModal(true);
             }}
             className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/30 transition-all flex items-center gap-1.5"
@@ -784,6 +803,7 @@ export default function MiMesaHome() {
             type="button"
             onClick={() => {
               setEditingEvent(null);
+              setDefaultModalDate(currentAnchorDate);
               setShowEventModal(true);
             }}
             className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs rounded-xl transition-all border border-slate-700 ml-1.5 flex items-center gap-1"
@@ -835,10 +855,18 @@ export default function MiMesaHome() {
           <CalendarGrid
             events={schedule}
             weather={weather}
+            anchorDate={currentAnchorDate}
+            onAnchorDateChange={setCurrentAnchorDate}
             onToggleLock={handleToggleLock}
             onDeleteEvent={handleDeleteEvent}
             onEditEvent={(ev) => {
               setEditingEvent(ev);
+              setDefaultModalDate(new Date(ev.start));
+              setShowEventModal(true);
+            }}
+            onSlotClick={(clickedDate) => {
+              setEditingEvent(null);
+              setDefaultModalDate(clickedDate);
               setShowEventModal(true);
             }}
             onClearWeek={handleClearWeek}
@@ -936,12 +964,22 @@ export default function MiMesaHome() {
         onClose={() => {
           setShowEventModal(false);
           setEditingEvent(null);
+          setDefaultModalDate(null);
         }}
         onSave={handleSaveEvent}
         initialEvent={editingEvent}
+        defaultDate={defaultModalDate || currentAnchorDate}
         travelBufferCasino={params.travel_buffer_casino}
         travelBufferFerro={params.travel_buffer_ferro}
       />
+
+      {/* Toast Notification Banner */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 animate-fadeIn flex items-center gap-2.5 px-4 py-3 bg-emerald-950/95 border border-emerald-500/60 rounded-xl text-emerald-100 text-xs font-semibold shadow-2xl backdrop-blur-md">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </div>
   );
 }

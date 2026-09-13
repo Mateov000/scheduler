@@ -21,11 +21,14 @@ interface CalendarGridProps {
   events: Event[];
   weather?: WeatherCondition[];
   currentDate?: Date;
+  anchorDate?: Date;
+  onAnchorDateChange?: (date: Date) => void;
   onToggleLock: (eventId: string) => void;
   onEventClick?: (event: Event) => void;
   onDeleteEvent?: (eventId: string) => void;
   onEditEvent?: (event: Event) => void;
   onClearWeek?: () => void;
+  onSlotClick?: (date: Date) => void;
 }
 
 const CATEGORY_STYLES: Record<
@@ -137,20 +140,29 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
   events,
   weather = [],
   currentDate = new Date(),
+  anchorDate: controlledAnchorDate,
+  onAnchorDateChange,
   onToggleLock,
   onEventClick,
   onDeleteEvent,
   onEditEvent,
   onClearWeek,
+  onSlotClick,
 }) => {
   const [viewMode, setViewMode] = useState<'week' | 'day'>('week');
-  const [anchorDate, setAnchorDate] = useState<Date>(currentDate);
+  const [internalAnchor, setInternalAnchor] = useState<Date>(currentDate);
+  const activeAnchor = controlledAnchorDate || internalAnchor;
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+
+  const updateAnchor = (d: Date) => {
+    setInternalAnchor(d);
+    onAnchorDateChange && onAnchorDateChange(d);
+  };
 
   // Compute week range (Monday to Sunday)
   const weekDays = useMemo(() => {
     const days: Date[] = [];
-    const d = new Date(anchorDate);
+    const d = new Date(activeAnchor);
     const dayOfWeek = d.getDay(); // 0 = Sun, 1 = Mon ...
     const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     const monday = new Date(d);
@@ -163,22 +175,22 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
       days.push(nextDay);
     }
     return days;
-  }, [anchorDate]);
+  }, [activeAnchor]);
 
-  const activeDays = viewMode === 'week' ? weekDays : [anchorDate];
+  const activeDays = viewMode === 'week' ? weekDays : [activeAnchor];
 
   // Hours of day from 07:00 to 24:00 (17 hours) or full 24h
   const startHour = 0;
   const totalHours = 24;
 
   const navigateDays = (delta: number) => {
-    const next = new Date(anchorDate);
-    next.setDate(anchorDate.getDate() + (viewMode === 'week' ? delta * 7 : delta));
-    setAnchorDate(next);
+    const next = new Date(activeAnchor);
+    next.setDate(activeAnchor.getDate() + (viewMode === 'week' ? delta * 7 : delta));
+    updateAnchor(next);
   };
 
   const setToday = () => {
-    setAnchorDate(new Date());
+    updateAnchor(new Date());
   };
 
   return (
@@ -190,7 +202,7 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
           <h2 className="text-lg font-semibold tracking-tight">
             {viewMode === 'week'
               ? `Semana del ${weekDays[0].getDate()} al ${weekDays[6].getDate()} de ${weekDays[0].toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}`
-              : anchorDate.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              : activeAnchor.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           </h2>
         </div>
 
@@ -333,7 +345,21 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
               });
 
               return (
-                <div key={colIdx} className="relative border-r border-slate-800/50 h-full">
+                <div
+                  key={colIdx}
+                  onClick={(e) => {
+                    if (!onSlotClick) return;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const clickY = e.clientY - rect.top;
+                    const minutes = Math.max(0, Math.floor(clickY / SCALE_PX_PER_MIN));
+                    const hours = Math.min(23, Math.floor(minutes / 60));
+                    const slotDate = new Date(day);
+                    slotDate.setHours(hours, 0, 0, 0);
+                    onSlotClick(slotDate);
+                  }}
+                  className="relative border-r border-slate-800/50 h-full cursor-pointer hover:bg-slate-900/20 transition-colors"
+                  title="Hacé click en un horario vacío para crear un evento aquí"
+                >
                   {dayEvents.map((event) => {
                     const eStart = new Date(event.start);
                     const minutesFromMidnight = eStart.getHours() * 60 + eStart.getMinutes();
@@ -347,7 +373,8 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                     return (
                       <div
                         key={event.id}
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setSelectedEvent(event);
                           onEventClick && onEventClick(event);
                         }}
