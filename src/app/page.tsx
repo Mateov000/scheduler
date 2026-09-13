@@ -38,11 +38,14 @@ import { ConstraintParams, defaultParams } from '@/lib/scheduler/params';
 import { evaluateSchedule } from '@/lib/scheduler/scorer';
 import { solveMiMesa } from '@/lib/scheduler/solver';
 import { LocalStorageStore } from '@/lib/scheduler/storage/LocalStorageStore';
+import { resolveConflictLWW, sanitizeForCloudSync, SupabaseSyncClient } from '@/lib/scheduler/storage/syncEngine';
 import { Contact, ConstraintTrace, Event, SolverResult, WeatherCondition } from '@/lib/scheduler/types';
 import { fetchMDPWeather, generateSyntheticMDPWeather } from '@/lib/scheduler/weatherService';
+import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
 
 const store = new LocalStorageStore();
 const geminiClient = new GeminiFlashClient();
+const syncClient = new SupabaseSyncClient();
 
 // Initial sample contacts for Matu (§11.1)
 const INITIAL_CONTACTS: Contact[] = [
@@ -283,6 +286,89 @@ export default function MiMesaHome() {
     // 3. Load Params
     const storedParams = store.getParams();
     setParams(storedParams);
+
+    // 4. Supabase Cloud Sync & Realtime Subscription (§2.3)
+    if (isSupabaseConfigured && supabase) {
+      syncClient.fetchAllEvents().then((remoteEvents) => {
+        if (remoteEvents.length > 0) {
+          setSchedule((current) => {
+            const merged = [...current];
+            for (const remote of remoteEvents) {
+              const localIndex = merged.findIndex((e) => e.id === remote.id);
+              if (localIndex >= 0) {
+                merged[localIndex] = resolveConflictLWW(merged[localIndex], remote);
+              } else {
+                merged.push(remote);
+              }
+            }
+            store.saveEvents(merged);
+            return merged;
+          });
+        }
+      });
+
+      // Listen for changes from other devices in Realtime
+      const channel = supabase
+        .channel('realtime_mimesa_events')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'mimesa_events' },
+          (payload) => {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const row: any = payload.new;
+              const remoteEvent: Event = {
+                id: row.id,
+                name: row.name,
+                category: row.category,
+                emoji: row.emoji,
+                start: new Date(row.start),
+                duration: row.duration,
+                is_locked: row.is_locked,
+                location: row.location,
+                weatherSensitivity: row.weather_sensitivity,
+                contacts: row.contacts,
+                cognitiveLoad: row.cognitive_load,
+                physicalLoad: row.physical_load,
+                estimatedCostARS: row.estimated_cost_ars ? Number(row.estimated_cost_ars) : undefined,
+                is_sensitive: row.is_sensitive,
+                createdAt: new Date(row.created_at),
+                updatedAt: new Date(row.updated_at),
+                deviceId: row.device_id,
+                localVersion: row.local_version,
+                syncStatus: 'synced',
+              };
+
+              setSchedule((current) => {
+                const idx = current.findIndex((e) => e.id === remoteEvent.id);
+                let nextList = [...current];
+                if (idx >= 0) {
+                  nextList[idx] = resolveConflictLWW(nextList[idx], remoteEvent);
+                } else {
+                  nextList.push(remoteEvent);
+                }
+                store.saveEvents(nextList);
+                return nextList;
+              });
+            } else if (payload.eventType === 'DELETE') {
+              const deletedId = (payload.old as any)?.id;
+              if (deletedId) {
+                setSchedule((current) => {
+                  const nextList = current.filter((e) => e.id !== deletedId);
+                  store.saveEvents(nextList);
+                  return nextList;
+                });
+              }
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        if (supabase) {
+          supabase.removeChannel(channel);
+        }
+      };
+    }
   }, []);
 
   // Real-time evaluation of current schedule
@@ -306,19 +392,25 @@ export default function MiMesaHome() {
 
   // Universal Lock Toggle Handler (§29.3)
   const handleToggleLock = (eventId: string) => {
+    let targetEvent: Event | undefined;
     const updated = schedule.map((e) => {
       if (e.id === eventId) {
-        return {
+        targetEvent = {
           ...e,
           is_locked: !e.is_locked,
           updatedAt: new Date(),
         };
+        return targetEvent;
       }
       return e;
     });
 
     setSchedule(updated);
     store.saveEvents(updated);
+
+    if (isSupabaseConfigured && targetEvent) {
+      syncClient.pushEvent(sanitizeForCloudSync(targetEvent));
+    }
   };
 
   // Run Solver
@@ -432,6 +524,21 @@ export default function MiMesaHome() {
           >
             ComfortScore: {currentComfort}
           </span>
+        </div>
+
+        {/* Cloud Sync Status Indicator */}
+        <div className="hidden lg:flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-mono">
+          {isSupabaseConfigured ? (
+            <span className="flex items-center gap-1.5 text-emerald-400">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Supabase Realtime
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-slate-400">
+              <span className="w-2 h-2 rounded-full bg-slate-500" />
+              Local-First (Offline)
+            </span>
+          )}
         </div>
 
         {/* Action Buttons */}
