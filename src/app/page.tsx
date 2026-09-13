@@ -426,14 +426,73 @@ export default function MiMesaHome() {
     }
   };
 
-  // Manual Event Deletion
-  const handleDeleteEvent = async (eventId: string) => {
-    const updated = schedule.filter((e) => e.id !== eventId);
+  // Manual Event Deletion with recurrence scoping
+  const handleDeleteEvent = async (
+    eventId: string,
+    scope: 'this_event' | 'this_and_following' | 'all' = 'this_event'
+  ) => {
+    const target = schedule.find((e) => e.id === eventId);
+    if (!target) return;
+
+    let updated: Event[];
+    let deletedIds: string[] = [];
+
+    if (!target.recurrenceId || scope === 'this_event') {
+      deletedIds = [eventId];
+      // Also clean up any associated travel events for this specific occurrence
+      const targetTime = new Date(target.start).getTime();
+      const travelIds = schedule
+        .filter(
+          (e) =>
+            e.category === 'traslado' &&
+            Math.abs(new Date(e.start).getTime() - targetTime) <= 12 * 60 * 60 * 1000 &&
+            (e.name.toLowerCase().includes(target.name.toLowerCase()) ||
+              (target.location?.name && e.location?.name && e.location.name === target.location.name))
+        )
+        .map((e) => e.id);
+      deletedIds.push(...travelIds);
+      updated = schedule.filter((e) => !deletedIds.includes(e.id));
+      showToast(`✓ Se eliminó el evento "${target.name}"`);
+    } else if (scope === 'this_and_following') {
+      const targetStartDay = new Date(target.start);
+      targetStartDay.setHours(0, 0, 0, 0);
+
+      const toDelete = schedule.filter((e) => {
+        if (e.recurrenceId === target.recurrenceId) {
+          return new Date(e.start).getTime() >= targetStartDay.getTime();
+        }
+        if (
+          e.category === 'traslado' &&
+          e.recurrenceId === `${target.recurrenceId}_travel` &&
+          new Date(e.start).getTime() >= targetStartDay.getTime()
+        ) {
+          return true;
+        }
+        return e.id === target.id;
+      });
+      deletedIds = toDelete.map((e) => e.id);
+      updated = schedule.filter((e) => !deletedIds.includes(e.id));
+      showToast(`✓ Se eliminaron este y los siguientes eventos de "${target.name}"`);
+    } else {
+      // scope === 'all'
+      const toDelete = schedule.filter(
+        (e) =>
+          e.recurrenceId === target.recurrenceId ||
+          (e.category === 'traslado' && e.recurrenceId === `${target.recurrenceId}_travel`) ||
+          e.id === target.id
+      );
+      deletedIds = toDelete.map((e) => e.id);
+      updated = schedule.filter((e) => !deletedIds.includes(e.id));
+      showToast(`✓ Se eliminó toda la serie de "${target.name}"`);
+    }
+
     setSchedule(updated);
     store.saveEvents(updated);
 
     if (isSupabaseConfigured) {
-      await syncClient.deleteEvent(eventId);
+      for (const id of deletedIds) {
+        await syncClient.deleteEvent(id);
+      }
     }
   };
 
@@ -491,27 +550,69 @@ export default function MiMesaHome() {
     downloadIcsFile(icsContent, 'mimesa-agenda-semanal.ics');
   };
 
-  // Handle Save from EventFormModal (Create or Edit)
-  const handleSaveEvent = (savedEvent: Event, travelEvents?: Event[], recurringInstances?: Event[]) => {
+  // Handle Save from EventFormModal (Create or Edit with recurrence scoping)
+  const handleSaveEvent = (
+    savedEvent: Event,
+    travelEvents?: Event[],
+    recurringInstances?: Event[],
+    impactScope: 'this_event' | 'this_and_following' = 'this_event',
+    originalEvent?: Event | null
+  ) => {
     let nextSchedule = [...schedule];
 
-    if (editingEvent) {
-      // Replace edited event in schedule
-      const index = nextSchedule.findIndex((e) => e.id === savedEvent.id);
+    if (originalEvent && originalEvent.recurrenceId && impactScope === 'this_and_following') {
+      // SPLIT / UPDATE FROM THIS EVENT FORWARD
+      const origRecurrenceId = originalEvent.recurrenceId;
+      const splitDay = new Date(originalEvent.start);
+      splitDay.setHours(0, 0, 0, 0);
+
+      // 1. Keep prior occurrences of this recurrence, discard split day and later
+      const priorEvents = nextSchedule.filter((e) => {
+        if (e.recurrenceId === origRecurrenceId) {
+          return new Date(e.start).getTime() < splitDay.getTime();
+        }
+        if (e.category === 'traslado' && e.recurrenceId === `${origRecurrenceId}_travel`) {
+          return new Date(e.start).getTime() < splitDay.getTime();
+        }
+        if (e.id === originalEvent.id) {
+          return false;
+        }
+        return true;
+      });
+
+      // 2. Add new instances starting from the new date
+      const eventsToAdd = recurringInstances && recurringInstances.length > 0 ? recurringInstances : [savedEvent];
+      nextSchedule = [...priorEvents, ...eventsToAdd];
+
+      if (travelEvents && travelEvents.length > 0) {
+        nextSchedule.push(...travelEvents);
+      }
+
+      showToast(`✓ Serie actualizada a partir del ${new Date(savedEvent.start).toLocaleDateString('es-AR')}`);
+    } else if (originalEvent) {
+      // Single event edit (or this_event scope)
+      const index = nextSchedule.findIndex((e) => e.id === originalEvent.id);
       if (index >= 0) {
         nextSchedule[index] = savedEvent;
       } else {
         nextSchedule.push(savedEvent);
       }
+
+      if (travelEvents && travelEvents.length > 0) {
+        nextSchedule.push(...travelEvents);
+      }
+
+      showToast(`✓ Cambios guardados para "${savedEvent.name}"`);
     } else {
-      // Add new event or recurring instances
+      // Creating new event
       const eventsToAdd = recurringInstances && recurringInstances.length > 0 ? recurringInstances : [savedEvent];
       nextSchedule.push(...eventsToAdd);
-    }
 
-    // Add travel events if generated
-    if (travelEvents && travelEvents.length > 0) {
-      nextSchedule.push(...travelEvents);
+      if (travelEvents && travelEvents.length > 0) {
+        nextSchedule.push(...travelEvents);
+      }
+
+      showToast(`✓ Evento "${savedEvent.name}" agregado al calendario`);
     }
 
     setSchedule(nextSchedule);
@@ -519,11 +620,6 @@ export default function MiMesaHome() {
 
     // Auto-focus calendar on the date/week of the saved event
     setCurrentAnchorDate(new Date(savedEvent.start));
-    showToast(
-      editingEvent
-        ? `✓ Cambios guardados para "${savedEvent.name}"`
-        : `✓ Evento "${savedEvent.name}" agregado al calendario`
-    );
 
     if (isSupabaseConfigured) {
       const eventsToPush = recurringInstances && recurringInstances.length > 0 ? recurringInstances : [savedEvent];

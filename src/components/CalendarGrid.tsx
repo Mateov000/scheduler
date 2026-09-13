@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { Event, EventCategory, WeatherCondition } from '../lib/scheduler/types';
 
+export type DeleteRecurrenceScope = 'this_event' | 'this_and_following' | 'all';
+
 interface CalendarGridProps {
   events: Event[];
   weather?: WeatherCondition[];
@@ -25,7 +27,7 @@ interface CalendarGridProps {
   onAnchorDateChange?: (date: Date) => void;
   onToggleLock: (eventId: string) => void;
   onEventClick?: (event: Event) => void;
-  onDeleteEvent?: (eventId: string) => void;
+  onDeleteEvent?: (eventId: string, scope?: DeleteRecurrenceScope) => void;
   onEditEvent?: (event: Event) => void;
   onClearWeek?: () => void;
   onSlotClick?: (date: Date) => void;
@@ -153,6 +155,7 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
   const [internalAnchor, setInternalAnchor] = useState<Date>(currentDate);
   const activeAnchor = controlledAnchorDate || internalAnchor;
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [deleteModalEvent, setDeleteModalEvent] = useState<Event | null>(null);
 
   const updateAnchor = (d: Date) => {
     setInternalAnchor(d);
@@ -568,9 +571,14 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                 {onDeleteEvent && (
                   <button
                     onClick={() => {
-                      if (window.confirm(`¿Estás seguro de que deseas eliminar "${selectedEvent.name}"?`)) {
-                        onDeleteEvent(selectedEvent.id);
+                      if (selectedEvent.recurrenceId) {
+                        setDeleteModalEvent(selectedEvent);
                         setSelectedEvent(null);
+                      } else {
+                        if (window.confirm(`¿Estás seguro de que deseas eliminar "${selectedEvent.name}"?`)) {
+                          onDeleteEvent(selectedEvent.id, 'this_event');
+                          setSelectedEvent(null);
+                        }
                       }
                     }}
                     className="px-3.5 py-2 text-xs font-bold rounded-xl bg-rose-950/70 hover:bg-rose-900 text-rose-300 hover:text-rose-100 border border-rose-800/80 transition-colors flex items-center gap-1.5"
@@ -586,6 +594,107 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                   Cerrar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recurring Event Delete Scope Modal */}
+      {deleteModalEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4 text-slate-100">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+              <div className="p-2.5 rounded-xl bg-rose-600/20 text-rose-400 border border-rose-500/30">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">Eliminar evento con repetición</h4>
+                <p className="text-xs text-slate-400">
+                  ¿Qué repeticiones de &quot;{deleteModalEvent.name}&quot; querés eliminar?
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2.5 pt-1">
+              {/* Option 1: Solo este evento */}
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteEvent?.(deleteModalEvent.id, 'this_event');
+                  setDeleteModalEvent(null);
+                }}
+                className="p-3.5 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-800 hover:border-indigo-500 text-left transition-all group flex items-start gap-3 shadow-md"
+              >
+                <div className="mt-0.5 p-2 rounded-lg bg-indigo-950 text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-colors text-base">
+                  🎯
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-white flex items-center gap-2">
+                    <span>Solo este evento</span>
+                    <span className="text-[10px] font-normal text-slate-400 font-mono">
+                      ({new Date(deleteModalEvent.start).toLocaleDateString('es-AR')})
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    Elimina únicamente la repetición de este día. Las repeticiones pasadas y futuras se mantendrán en el calendario.
+                  </p>
+                </div>
+              </button>
+
+              {/* Option 2: Este y los siguientes */}
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteEvent?.(deleteModalEvent.id, 'this_and_following');
+                  setDeleteModalEvent(null);
+                }}
+                className="p-3.5 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-800 hover:border-amber-500 text-left transition-all group flex items-start gap-3 shadow-md"
+              >
+                <div className="mt-0.5 p-2 rounded-lg bg-amber-950 text-amber-400 group-hover:bg-amber-600 group-hover:text-white transition-colors text-base">
+                  ⏩
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-white flex items-center gap-2">
+                    <span>Este y los eventos siguientes</span>
+                    <span className="text-[10px] font-normal text-amber-300 font-mono">
+                      (&ge; {new Date(deleteModalEvent.start).toLocaleDateString('es-AR')})
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    Elimina este evento y todas las repeticiones futuras. Las repeticiones anteriores a este día permanecen intactas.
+                  </p>
+                </div>
+              </button>
+
+              {/* Option 3: Toda la serie */}
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteEvent?.(deleteModalEvent.id, 'all');
+                  setDeleteModalEvent(null);
+                }}
+                className="p-3.5 rounded-xl border border-rose-900/60 bg-rose-950/30 hover:bg-rose-950/60 hover:border-rose-500 text-left transition-all group flex items-start gap-3 shadow-md"
+              >
+                <div className="mt-0.5 p-2 rounded-lg bg-rose-950 text-rose-400 group-hover:bg-rose-600 group-hover:text-white transition-colors text-base">
+                  🗑️
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-rose-200">Toda la serie</div>
+                  <p className="text-[11px] text-rose-300/70 mt-1 leading-relaxed">
+                    Elimina todas las ocurrencias pasadas y futuras de este evento recurrente.
+                  </p>
+                </div>
+              </button>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeleteModalEvent(null)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         </div>

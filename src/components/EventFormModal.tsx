@@ -19,10 +19,18 @@ import {
 import { DayOfWeek, Event, EventCategory, Location, LocationType, RecurrenceFrequency, RecurrencePattern, WeatherSensitivity } from '../lib/scheduler/types';
 import { expandRecurrencePattern } from '../lib/scheduler/recurrence';
 
+export type RecurrenceImpactScope = 'this_event' | 'this_and_following';
+
 interface EventFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (event: Event, travelEvents?: Event[], recurringInstances?: Event[]) => void;
+  onSave: (
+    event: Event,
+    travelEvents?: Event[],
+    recurringInstances?: Event[],
+    impactScope?: RecurrenceImpactScope,
+    originalEvent?: Event | null
+  ) => void;
   initialEvent?: Event | null;
   defaultDate?: Date | null;
   travelBufferCasino?: number;
@@ -106,6 +114,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
   const [recurrenceFreq, setRecurrenceFreq] = useState<RecurrenceFrequency>('weekly');
   const [recurrenceDays, setRecurrenceDays] = useState<DayOfWeek[]>([1]); // default lunes
   const [untilDateStr, setUntilDateStr] = useState<string>('');
+  const [showScopeModal, setShowScopeModal] = useState<boolean>(false);
 
   // Reset or initialize fields ONLY when modal opens or initialEvent changes
   useEffect(() => {
@@ -130,9 +139,15 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       setIsSensitive(initialEvent.is_sensitive ?? false);
       setCannabisConsumed(initialEvent.cannabis_consumed ?? false);
       setIsRecurring(!!initialEvent.recurrenceId);
+      setRecurrenceFreq('weekly');
+      setRecurrenceDays([d.getDay() as DayOfWeek]);
+      const fourWeeksLater = new Date(d);
+      fourWeeksLater.setDate(d.getDate() + 28);
+      setUntilDateStr(formatLocalDate(fourWeeksLater));
       setIncludeTravelIda(false);
       setIncludeTravelVuelta(false);
       setTravelBufferMinutes(30);
+      setShowScopeModal(false);
     } else {
       setName('');
       setCategory('trabajo');
@@ -340,10 +355,8 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
     }
   };
 
-  // Submit Handler
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
+  // Core save execution given an impact scope
+  const executeSave = (impactScope: RecurrenceImpactScope) => {
     const [h, m] = startTimeStr.split(':').map((v) => parseInt(v, 10) || 0);
     const [year, month, day] = startDateStr.split('-').map((v) => parseInt(v, 10) || 0);
     const startDate = new Date(year, month - 1, day, h, m, 0, 0);
@@ -379,63 +392,78 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       syncStatus: 'pending',
     };
 
-    // 1. Generate Separate Travel Events if enabled (Ida and/or Vuelta independently)
-    const travelEvents: Event[] = [];
     const effectiveBuffer = travelBufferMinutes || defaultSuggestedBuffer;
 
-    if (includeTravelIda) {
-      const idaStart = new Date(startDate.getTime() - effectiveBuffer * 60000);
-      travelEvents.push({
-        id: `ev_traslado_ida_${Date.now()}`,
-        name: `Traslado a ${detectedVenueName}`,
-        category: 'traslado',
-        emoji: '🚌',
-        start: idaStart,
-        duration: effectiveBuffer,
-        is_locked: isLocked,
-        location: { type: locationType, name: detectedVenueName },
-        weatherSensitivity: 'transit_only',
-        cognitiveLoad: 0,
-        physicalLoad: 0,
-        is_sensitive: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        deviceId: 'local',
-        localVersion: 1,
-        syncStatus: 'pending',
-      });
+    if (impactScope === 'this_event') {
+      // Mark as exception if it was part of a recurring series
+      if (initialEvent?.recurrenceId) {
+        newEvent.isRecurrenceException = true;
+        newEvent.recurrenceId = initialEvent.recurrenceId;
+      }
+
+      const singleTravelEvents: Event[] = [];
+      if (includeTravelIda) {
+        singleTravelEvents.push({
+          id: `ev_traslado_ida_${Date.now()}`,
+          name: `Traslado a ${detectedVenueName}`,
+          category: 'traslado',
+          emoji: '🚌',
+          start: new Date(startDate.getTime() - effectiveBuffer * 60000),
+          duration: effectiveBuffer,
+          is_locked: isLocked,
+          location: { type: locationType, name: detectedVenueName },
+          weatherSensitivity: 'transit_only',
+          cognitiveLoad: 0,
+          physicalLoad: 0,
+          is_sensitive: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deviceId: 'local',
+          localVersion: 1,
+          syncStatus: 'pending',
+        });
+      }
+
+      if (includeTravelVuelta) {
+        singleTravelEvents.push({
+          id: `ev_traslado_vuelta_${Date.now() + 1}`,
+          name: `Traslado desde ${detectedVenueName}`,
+          category: 'traslado',
+          emoji: '🚌',
+          start: new Date(startDate.getTime() + duration * 60000),
+          duration: effectiveBuffer,
+          is_locked: isLocked,
+          location: { type: 'casa', name: 'Casa' },
+          weatherSensitivity: 'transit_only',
+          cognitiveLoad: 0,
+          physicalLoad: 0,
+          is_sensitive: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deviceId: 'local',
+          localVersion: 1,
+          syncStatus: 'pending',
+        });
+      }
+
+      onSave(newEvent, singleTravelEvents.length > 0 ? singleTravelEvents : undefined, undefined, 'this_event', initialEvent);
+      setShowScopeModal(false);
+      onClose();
+      return;
     }
 
-    if (includeTravelVuelta) {
-      const vueltaStart = new Date(startDate.getTime() + duration * 60000);
-      travelEvents.push({
-        id: `ev_traslado_vuelta_${Date.now() + 1}`,
-        name: `Traslado desde ${detectedVenueName}`,
-        category: 'traslado',
-        emoji: '🚌',
-        start: vueltaStart,
-        duration: effectiveBuffer,
-        is_locked: isLocked,
-        location: { type: 'casa', name: 'Casa' },
-        weatherSensitivity: 'transit_only',
-        cognitiveLoad: 0,
-        physicalLoad: 0,
-        is_sensitive: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        deviceId: 'local',
-        localVersion: 1,
-        syncStatus: 'pending',
-      });
-    }
-
-    // 2. Generate Recurring Instances if enabled
+    // impactScope === 'this_and_following'
     let recurringInstances: Event[] | undefined;
+    const allTravelEvents: Event[] = [];
+
     if (isRecurring && untilDateStr) {
       const [uYear, uMonth, uDay] = untilDateStr.split('-').map((v) => parseInt(v, 10) || 0);
       const untilDate = new Date(uYear, uMonth - 1, uDay, 23, 59, 59, 999);
 
-      const patternId = initialEvent?.recurrenceId || `rec_${Date.now()}`;
+      const patternId = initialEvent?.recurrenceId
+        ? `${initialEvent.recurrenceId}_fwd_${Date.now()}`
+        : `rec_${Date.now()}`;
+
       const pattern: RecurrencePattern = {
         id: patternId,
         frequency: recurrenceFreq,
@@ -449,10 +477,123 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
 
       // Expand instances up to untilDate
       recurringInstances = expandRecurrencePattern(pattern, newEvent, startDate, untilDate);
+
+      // Generate travel events for each recurring instance
+      if (includeTravelIda || includeTravelVuelta) {
+        recurringInstances.forEach((inst, idx) => {
+          const instDate = new Date(inst.start);
+          if (includeTravelIda) {
+            allTravelEvents.push({
+              id: `ev_traslado_ida_${inst.id}_${idx}_${Date.now()}`,
+              name: `Traslado a ${detectedVenueName}`,
+              category: 'traslado',
+              emoji: '🚌',
+              start: new Date(instDate.getTime() - effectiveBuffer * 60000),
+              duration: effectiveBuffer,
+              is_locked: isLocked,
+              location: { type: locationType, name: detectedVenueName },
+              weatherSensitivity: 'transit_only',
+              cognitiveLoad: 0,
+              physicalLoad: 0,
+              is_sensitive: false,
+              recurrenceId: `${patternId}_travel`,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              deviceId: 'local',
+              localVersion: 1,
+              syncStatus: 'pending',
+            });
+          }
+          if (includeTravelVuelta) {
+            allTravelEvents.push({
+              id: `ev_traslado_vuelta_${inst.id}_${idx}_${Date.now() + 1}`,
+              name: `Traslado desde ${detectedVenueName}`,
+              category: 'traslado',
+              emoji: '🚌',
+              start: new Date(instDate.getTime() + inst.duration * 60000),
+              duration: effectiveBuffer,
+              is_locked: isLocked,
+              location: { type: 'casa', name: 'Casa' },
+              weatherSensitivity: 'transit_only',
+              cognitiveLoad: 0,
+              physicalLoad: 0,
+              is_sensitive: false,
+              recurrenceId: `${patternId}_travel`,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              deviceId: 'local',
+              localVersion: 1,
+              syncStatus: 'pending',
+            });
+          }
+        });
+      }
+    } else {
+      // Recurrence was disabled
+      newEvent.recurrenceId = undefined;
+      if (includeTravelIda) {
+        allTravelEvents.push({
+          id: `ev_traslado_ida_${Date.now()}`,
+          name: `Traslado a ${detectedVenueName}`,
+          category: 'traslado',
+          emoji: '🚌',
+          start: new Date(startDate.getTime() - effectiveBuffer * 60000),
+          duration: effectiveBuffer,
+          is_locked: isLocked,
+          location: { type: locationType, name: detectedVenueName },
+          weatherSensitivity: 'transit_only',
+          cognitiveLoad: 0,
+          physicalLoad: 0,
+          is_sensitive: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deviceId: 'local',
+          localVersion: 1,
+          syncStatus: 'pending',
+        });
+      }
+      if (includeTravelVuelta) {
+        allTravelEvents.push({
+          id: `ev_traslado_vuelta_${Date.now() + 1}`,
+          name: `Traslado desde ${detectedVenueName}`,
+          category: 'traslado',
+          emoji: '🚌',
+          start: new Date(startDate.getTime() + duration * 60000),
+          duration: effectiveBuffer,
+          is_locked: isLocked,
+          location: { type: 'casa', name: 'Casa' },
+          weatherSensitivity: 'transit_only',
+          cognitiveLoad: 0,
+          physicalLoad: 0,
+          is_sensitive: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deviceId: 'local',
+          localVersion: 1,
+          syncStatus: 'pending',
+        });
+      }
     }
 
-    onSave(newEvent, travelEvents.length > 0 ? travelEvents : undefined, recurringInstances);
+    onSave(
+      newEvent,
+      allTravelEvents.length > 0 ? allTravelEvents : undefined,
+      recurringInstances,
+      'this_and_following',
+      initialEvent
+    );
+    setShowScopeModal(false);
     onClose();
+  };
+
+  // Submit Handler
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isEdit && !!initialEvent?.recurrenceId) {
+      setShowScopeModal(true);
+      return;
+    }
+    executeSave('this_event');
   };
 
   return (
@@ -486,6 +627,16 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
 
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 flex flex-col gap-5 text-xs">
+          {/* Recurring Event Banner */}
+          {isEdit && !!initialEvent?.recurrenceId && (
+            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-purple-950/60 border border-purple-800/70 text-purple-200 text-xs shadow-sm">
+              <Repeat className="w-4 h-4 text-purple-400 shrink-0" />
+              <span>
+                <strong>Evento periódico:</strong> Podés modificar el horario o cambiar la repetición. Al guardar, elegirás si impacta solo en este día o en todos los siguientes.
+              </span>
+            </div>
+          )}
+
           {/* 1. Nombre y Emoji */}
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="flex-1 flex flex-col gap-1.5">
@@ -1087,6 +1238,75 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
             </button>
           </div>
         </form>
+
+        {/* Scope Selection Modal for Recurring Event */}
+        {showScopeModal && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fadeIn">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4 text-slate-100">
+              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+                <div className="p-2.5 rounded-xl bg-purple-600/30 text-purple-300 border border-purple-500/40">
+                  <Repeat className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white">Editar evento con repetición</h4>
+                  <p className="text-xs text-slate-400">¿Dónde querés que impacten los cambios?</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 pt-1">
+                {/* Option 1: Solo este evento */}
+                <button
+                  type="button"
+                  onClick={() => executeSave('this_event')}
+                  className="p-4 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-800 hover:border-indigo-500 text-left transition-all group flex items-start gap-3 shadow-md"
+                >
+                  <div className="mt-0.5 p-2 rounded-lg bg-indigo-950 text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-colors text-base">
+                    🎯
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-white flex items-center gap-2">
+                      <span>Solo este evento</span>
+                      <span className="text-[10px] font-normal text-slate-400 font-mono">({startDateStr})</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                      Modifica únicamente la repetición de este día. Las repeticiones pasadas y futuras de la serie no se verán afectadas.
+                    </p>
+                  </div>
+                </button>
+
+                {/* Option 2: Este y los eventos siguientes */}
+                <button
+                  type="button"
+                  onClick={() => executeSave('this_and_following')}
+                  className="p-4 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-800 hover:border-purple-500 text-left transition-all group flex items-start gap-3 shadow-md"
+                >
+                  <div className="mt-0.5 p-2 rounded-lg bg-purple-950 text-purple-400 group-hover:bg-purple-600 group-hover:text-white transition-colors text-base">
+                    ⏩
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-white flex items-center gap-2">
+                      <span>Este y los eventos siguientes</span>
+                      <span className="text-[10px] font-normal text-purple-300 font-mono">(&ge; {startDateStr})</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                      Aplica los cambios a este día y a todas las repeticiones futuras (cambio de día de la semana, horario o fin de serie). Lo anterior a esta fecha queda igual.
+                    </p>
+                  </div>
+                </button>
+              </div>
+
+              <div className="flex justify-end pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowScopeModal(false)}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                >
+                  Volver a editar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
