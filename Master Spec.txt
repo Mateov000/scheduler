@@ -1,0 +1,1760 @@
+﻿MiMesa Scheduler — Especificación Maestra Completa v1.1 (Actualizada)
+Versión: 1.1 · Fecha: 12 de Septiembre de 2026
+Autor del dominio: Matu · Ubicación: Mar del Plata, Argentina
+Estado: ✅ Especificación actualizada — fuente de verdad única
+Cambios respecto a v1.0: Correcciones de contexto personal, nuevo tier GHC (Graduated Hard Constraints), meta-sliders globales, estrategia de clima/indoor revisada, todos los parámetros numéricos editables, + requerimientos de vista de calendario (diaria/semanal proporcional) y lock universal explícito por evento.
+ÍNDICE
+Parte I — El Producto
+1. ¿Qué es MiMesa Scheduler?
+2. El Contexto de Vida de Matu
+3. Principios de Diseño No Negociables
+Parte II — Requisitos Abstractos
+4. Qué Tiene que Tener el Sistema
+Parte III — Diseño del Sistema
+5. El Motor de Restricciones: Tres Tiers
+6. Hard Constraints — Catálogo Completo
+7. Graduated Hard Constraints — Nuevo Tier
+8. Soft Constraints — Catálogo Completo
+9. La Función de Penalización Unificada
+10. Los Meta-Sliders de Prioridad Global
+11. El Modelo Social Abierto
+12. El Sistema Meteorológico y la Estrategia Indoor
+13. Eventos Recurrentes y Excepciones
+14. El Modelo de Datos Completo
+15. El Algoritmo CSP
+16. Sincronización Multi-Dispositivo
+Parte IV — Diseño de Experiencia
+17. La Sesión de Planificación Semanal
+18. El DiffViewerModal con Constraint Trace
+19. El Panel de Restricciones Configurable
+20. El Score y su Descomposición
+21. Modo "¿Qué Hago Ahora?"
+22. La Retrospectiva Semanal
+23. Sistema de Aprendizaje de Patrones
+24. Modo Simulación "Y si..."
+25. Modelo Económico en ARS
+26. Arquitectura de Notificaciones
+27. Privacidad
+28. Onboarding
+29. La Vista Principal del Calendario
+Parte V — Implementación
+30. Arquitectura Técnica
+31. Estructura de Archivos
+32. Roadmap de Implementación
+PARTE I — EL PRODUCTO
+1. ¿Qué es MiMesa Scheduler?
+MiMesa Scheduler es un optimizador personal de agenda diseñado para una persona real con una vida real: trabajo rotativo en horarios difíciles, universidad con cursadas fijas, red de vínculos afectivos con dinámicas propias, dependencia del microclima costero de Mar del Plata, y la tensión permanente entre diferentes objetivos de vida que compiten por el mismo recurso finito: el tiempo.
+No es un calendario corporativo. No es una app de productividad genérica. No es un gestor de tareas.
+Es un sistema que piensa la semana junto con el usuario, respetando restricciones que ningún calendario convencional entiende — como que después de un turno nocturno en Ferro San Juan es físicamente imposible estudiar con eficacia a las 9 AM, o que las noches de buen clima en MDP son un recurso escaso que merece ser aprovechado activamente para lo social.
+Lo que hace el sistema, en una oración
+MiMesa distribuye los eventos de la semana maximizando el bienestar bio-psico-social del usuario, respetando restricciones inviolables, optimizando criterios configurables y reflejando la tensión real entre distintas prioridades de vida.
+Lo que no hace
+* No decide por el usuario: propone y el usuario acepta, rechaza o edita.
+* No reemplaza el juicio humano: es un asistente con voz, no un dictador de agenda.
+* No penaliza al usuario por no cumplir metas: el Score es informativo, no punitivo.
+* No comparte información sensible con servicios externos sin consentimiento explícito.
+2. El Contexto de Vida de Matu
+Para entender por qué cada decisión de diseño existe, hay que entender quién es Matu y cómo vive.
+2.1 Entorno Familiar
+Matu vive con sus padres en Mar del Plata. La app es de uso personal exclusivo — no es necesario ocultarla de nadie dentro del hogar. Sin embargo, esto tiene implicaciones logísticas relevantes para la agenda:
+* El hogar como espacio social es limitado: La casa suele estar desordenada y no es un entorno cómodo para recibir visitas con frecuencia. Para visitas puntuales de amigos muy cercanos (Juani vive a 10 minutos, Juancito a 30) puede funcionar ocasionalmente. Para salidas más casuales o con personas nuevas, no es el espacio adecuado.
+* La privacidad en el hogar es reducida: Hay poca privacidad con los padres presentes, lo que afecta qué tipos de actividades son cómodas en casa.
+* Consecuencia para la agenda: El hogar es un buen destino para estudio, batch cooking, descanso y reuniones muy íntimas. No es el fallback general para mal clima cuando se trata de actividades sociales.
+Ciertas actividades implican llegar a casa en un estado que requiere un margen de tiempo previo (ver §2.6). Eso es una restricción real que el sistema maneja, pero no está relacionada con la visibilidad de la app.
+2.2 Trabajo en Dos Sucursales con Horarios Radicalmente Distintos
+Matu trabaja en dos locales de souvenirs:
+Sucursal Rambla Casino — Turnos diurnos (ej. 10:00 a 16:00). Requiere 30 minutos de traslado en cada sentido.
+Sucursal Ferro San Juan — Turnos nocturnos con cierre en la madrugada (ej. 17:00 a 01:00 AM). Este turno tiene consecuencias profundas:
+* Requiere una ventana de sueño flotante de 8 horas continuas garantizadas después de llegar a casa (configurable; default: target_sleep_post_ferro: 480min).
+* Los 90 minutos posteriores a la llegada son inutilizables para trabajo cognitivo de alta demanda (configurable: cognitive_ban_window_post_ferro: 90min).
+* Si se encadenan varios turnos Ferro consecutivos sin sueño reparador, se acumula deuda de fatiga que el sistema rastrea (Fatigue Tracker).
+2.3 Universidad — Materias del Cuatrimestre
+Las materias actuales tienen horarios fijos e inamovibles (is_locked: true durante el cuatrimestre):
+Materia
+	Abreviatura
+	Demanda cognitiva
+	Redes de Computadoras
+	Redes
+	Alta
+	Análisis y Diseño de Sistemas
+	AyDS
+	Alta
+	Administración Empresarial en la Economía del Conocimiento
+	AEEC
+	Media
+	Calidad de Software
+	CalSoft
+	Alta
+	Todas requieren bloques de estudio continuo de al menos 2 horas para ser efectivos.
+2.4 Autonomía Alimentaria — Batch Cooking
+Para sostener viandas saludables durante jornadas largas sin depender de comida rápida, la agenda debe garantizar al menos 2 sesiones semanales de 2 horas de batch cooking (configurable: batch_cooking_target: 2, batch_cooking_duration: 120min).
+2.5 Red de Vínculos Sociales
+Juancito — Amigo cercano. Meta semanal de horas de encuentro (default: weeklyHoursGoal: 5). Vive a 30 minutos de casa de Matu. Sus horarios laborales son conocidos por el sistema (busy_slots como soft constraint).
+Juani — Amigo cercano. Meta semanal de horas (default: weeklyHoursGoal: 3). Vive a 10 minutos de casa de Matu. Es de los pocos con quien una visita en casa funciona bien.
+Lau — Ex-pareja. Relación que requiere cuidado pero sin límite numérico estricto de frecuencia. La delicadeza del vínculo se modela como una Soft Constraint opcional (SC-16: Equilibrio con vínculo delicado), no como una HC. El usuario puede activarla o desactivarla según cómo esté transitando el vínculo en cada momento. Cuando está activa, penaliza semanas con más de N encuentros (N configurable); cuando está inactiva, el solver la ignora completamente.
+Personas nuevas / conocidos en construcción — El sistema preserva espacio para serendipia social mediante SocialOpportunitySlots (§11.3).
+2.6 La Restricción de Llegada Post-Consumo
+Si un evento incluye consumo de cannabis (cannabis_consumed: true), existe una restricción sobre cuándo es apropiado llegar a casa. Esta restricción es Graduated Hard Constraint (ver §7) — tiene un tiempo objetivo de 4 horas (configurable: cannabis_buffer_target: 240min) y un piso mínimo de 2 horas (configurable: cannabis_buffer_floor: 120min) por debajo del cual es inaceptable. Entre el piso y el objetivo, la penalización crece cuadráticamente — el solver puede recomendar acortarla si hay suficiente ganancia del otro lado.
+2.7 El Microclima de Mar del Plata
+Mar del Plata tiene un clima oceánico con características particulares:
+* Vientos fuertes del sudeste (>35 km/h) frecuentes y adversos por efecto costero.
+* Cambios rápidos de temperatura y probabilidad de lluvia.
+* Días de buen clima son un recurso escaso que vale aprovechar activamente.
+La estrategia del sistema frente al clima no es simplemente "si llueve, ir adentro". Es más sofisticada (ver §12).
+3. Principios de Diseño No Negociables
+#
+	Principio
+	Lo que implica
+	P1
+	Tu tiempo es tuyo
+	Los horarios de otros informan como sugerencias, nunca como bloqueos de tu agenda
+	P2
+	Determinismo sobre probabilismo
+	Las reglas duras son matemáticas: 240 minutos son 240 minutos, no "aproximadamente 4 horas"
+	P3
+	Local-first, cloud-enhanced
+	El solver corre 100% offline. La nube sincroniza, no condiciona
+	P4
+	Información sensible bajo control
+	Ciertos datos no salen del dispositivo sin consentimiento explícito
+	P5
+	Sugerir, nunca imponer
+	Las reglas blandas tienen voz pero no veto. El override manual siempre gana
+	P6
+	Calendario vivido, no administrado
+	El sistema optimiza para bienestar real: energía, ritmo, vínculos, serendipia
+	P7
+	El clima es una oportunidad
+	El sistema aprovecha activamente el buen clima, no solo advierte del malo
+	P8
+	Transparencia total
+	Cada cambio del solver tiene una razón explícita y auditable
+	P9
+	Todo número es configurable
+	Ningún valor numérico de ninguna restricción está hardcodeado. Todo es editable desde el panel de configuración
+	PARTE II — REQUISITOS ABSTRACTOS
+4. Qué Tiene que Tener el Sistema
+4.1 Un Motor de Restricciones con Tres Tiers
+El motor evalúa la semana contra tres tipos de reglas:
+Tier 1 — Hard Constraints (HC): Binarias e inviolables. La solución es inválida si las viola. Algunos parámetros son editables (cuántos minutos, qué umbral) pero su semántica no puede desactivarse. Total: 10 HCs.
+Tier 2 — Graduated Hard Constraints (GHC): El concepto nuevo. Son restricciones que tienen un objetivo deseable y un piso inaceptable. Entre ambos, la penalización crece cuadráticamente — el solver puede recomendar violarlas parcialmente si la ganancia en otros criterios es suficientemente grande. Por debajo del piso, se vuelven efectivamente HC (costo infinito). Total: 1 GHC actualmente (el buffer post-consumo).
+Tier 3 — Soft Constraints (SC): Preferencias ponderadas. Cada una produce una penalización proporcional al desvío, multiplicada por un peso configurable (slider 0–10). El solver minimiza la penalización total. Total: 16 SCs.
+El usuario puede ver, entender y modificar todas las reglas desde un panel de configuración. Cada valor numérico (minutos, horas, umbrales, metas) es editable. Cada SC puede activarse/desactivarse y tener su peso ajustado y su peso suspendido para una semana específica (override semanal).
+4.2 Meta-Sliders de Prioridad Global
+Por encima de los sliders individuales de cada SC, existen tres meta-sliders que representan las tensiones fundamentales de vida de Matu. Afectan grupos de SCs simultáneamente, sin reemplazar los sliders individuales. Son la respuesta a la pregunta "¿qué priorizo esta semana a nivel general?".
+4.3 Un Modelo Social Abierto en Tres Capas
+Contactos conocidos con restricciones explícitas + contactos en construcción (perfil progresivo) + slots de serendipia (tiempo abierto para lo que surja).
+4.4 Un Sistema Meteorológico con Estrategia Inteligente
+No solo "si llueve, ir adentro". El clima informa una estrategia: buen clima → proteger para social/outdoor. Mal clima → usar para estudio/productividad. Si surge una joda con mal clima, el solver nunca la bloquea.
+4.5 Eventos Recurrentes con Excepciones
+Cursadas del cuatrimestre, turnos regulares, restricciones de contactos — todos con patrón de recurrencia y excepciones puntuales.
+4.6 Una Experiencia de Planificación con Ritual
+La Sesión de Planificación Semanal como ritual de domingo a la noche: contexto personal → clima → fijos → intenciones sociales → solver → DiffViewer.
+4.7 Transparencia: El DiffViewerModal
+Cada cambio del solver tiene una razón explícita. El usuario aprueba, descarta o edita cambio por cambio.
+4.8 Un Score de Bienestar Descomponible
+0–100, desglosable por criterio, con sugerencias de mejora y comparación histórica.
+4.9 Modo "¿Qué Hago Ahora?"
+Para tiempo libre inesperado: opciones rankeadas según estado de ánimo, clima actual, metas en riesgo y disponibilidad de contactos.
+4.10 Aprendizaje de Patrones No Invasivo
+Detecta, sugiere, nunca activa solo.
+4.11 Simulación "Y si..."
+Explorar escenarios hipotéticos sin afectar el calendario real.
+4.12 Modelo Económico Estimado
+Estimación de gasto semanal en ARS por categoría de actividad.
+4.13 Privacidad de Datos Sensibles
+Los campos sensibles (cannabis_consumed, notas privadas, alias de contactos) no se sincronizan ni se exportan. Las notificaciones no revelan contenido sensible.
+PARTE III — DISEÑO DEL SISTEMA
+5. El Motor de Restricciones: Tres Tiers
+5.1 Visualización de los Tres Tiers
+
+
+
+
+
+
+TIER 1 · HARD CONSTRAINTS (HC)
+────────────────────────────────────────────────────────────
+ Binarias. Si se violan, la solución es inválida.
+ Algunos parámetros son editables. La semántica es fija.
+ Penalización: 0 (cumple) o ∞ (viola)
+
+TIER 2 · GRADUATED HARD CONSTRAINTS (GHC)
+────────────────────────────────────────────────────────────
+ Tienen objetivo T_target y piso T_floor.
+ Entre T_floor y T_target: penalización cuadrática creciente.
+ Por debajo de T_floor: penalización ∞ (equivalente a HC).
+ El solver puede recomendar violar parcialmente si la ganancia
+ en SCs compensa suficientemente.
+
+ Penalización:  0               si x ≥ T_target
+                w × ((T_target - x) / T_target)²   si T_floor ≤ x < T_target
+                ∞               si x < T_floor
+
+TIER 3 · SOFT CONSTRAINTS (SC)
+────────────────────────────────────────────────────────────
+ Preferencias ponderadas. Fully tradeable.
+ Penalización P_i ∈ [0,1] × peso w_i ∈ [0,10].
+ El solver minimiza Σ w_i × P_i.
+
+5.2 Principio P9 en Acción: Todo Parámetro es Editable
+Cada restricción en este documento que mencione un valor numérico tiene un nombre de parámetro en snake_case. Ese nombre es la clave en la configuración del usuario. Ningún valor está hardcodeado en el algoritmo.
+Ejemplos de parámetros configurables:
+Parámetro
+	Default
+	Restricción asociada
+	Min
+	Max
+	cannabis_buffer_target
+	240 min
+	GHC-01
+	60 min
+	480 min
+	cannabis_buffer_floor
+	120 min
+	GHC-01
+	30 min
+	cannabis_buffer_target - 30
+	sleep_target_post_ferro
+	480 min
+	HC-03
+	360 min
+	600 min
+	sleep_minimum_absolute
+	360 min
+	HC-09
+	300 min
+	sleep_target_post_ferro
+	cognitive_ban_post_ferro
+	90 min
+	HC-11
+	0 min
+	180 min
+	travel_buffer_casino
+	30 min
+	HC-05
+	10 min
+	90 min
+	travel_buffer_ferro
+	45 min
+	HC-05
+	15 min
+	90 min
+	dead_time_threshold
+	20 min
+	SC-09
+	5 min
+	45 min
+	weather_extreme_threshold
+	20 (ComfortScore)
+	HC-08
+	0
+	50
+	study_block_min_duration
+	120 min
+	SC-01
+	60 min
+	240 min
+	batch_cooking_target
+	2 sesiones/sem
+	SC-02
+	1
+	4
+	batch_cooking_duration
+	120 min
+	SC-02
+	60 min
+	240 min
+	context_switches_max
+	4/día
+	SC-14
+	2
+	8
+	serendipity_slots_per_week
+	2
+	SC-15
+	0
+	5
+	weekly_budget_ars
+	sin límite
+	SC-13
+	0
+	ilimitado
+	travel_time_max_daily
+	90 min
+	SC-12
+	30 min
+	180 min
+	long_session_no_meal_threshold
+	300 min
+	SC-11
+	120 min
+	480 min
+	La UI del panel de restricciones muestra cada parámetro junto a su restricción, con un input numérico o slider editable.
+6. Hard Constraints — Catálogo Completo
+Las HCs son binarias y estructuralmente inviolables. Sus parámetros son editables; su semántica, no.
+HC-01 · No Solapamiento de Eventos
+Semántica: Ningún par de eventos puede ocupar el mismo slot de tiempo, ni siquiera un minuto.
+
+
+$$\forall\, E_i, E_j,\ i \neq j:\quad \text{end}(E_i) \leq \text{start}(E_j) \quad\lor\quad \text{end}(E_j) \leq \text{start}(E_i)$$
+Parámetros editables: Ninguno (es matemática pura).
+Desactivable: ❌ Nunca.
+HC-02 · Eventos Locked Son Inamovibles
+Semántica: Todo evento con is_locked: true conserva su posición y duración originales. Cada evento que haya en el calendario debe tener una opción explicita para lockearlo, y una vez activada, ninguna recomendación lo intentará quitar o mover.
+Parámetros editables: Ninguno (el usuario controla el flag is_locked por evento mediante el toggle de la UI).
+Desactivable: ❌ Nunca.
+HC-03 · Sueño Continuo Post-Ferro
+Semántica: Después de cada turno Ferro, debe existir un bloque de sueño continuo de al menos sleep_target_post_ferro minutos (default: 480), comenzando dentro de travel_buffer_ferro minutos del fin del turno. Nada puede invadir ese bloque.
+Parámetros editables: sleep_target_post_ferro (360–600 min).
+Desactivable: ❌ Nunca.
+HC-05 · Traslados Obligatorios Pre/Post Turno Laboral
+Semántica: Buffer de tiempo libre antes y después de cada turno laboral, igual al tiempo de traslado a esa sucursal.
+Parámetros editables: travel_buffer_casino (default: 30 min), travel_buffer_ferro (default: 45 min).
+Desactivable: ⚠️ Solo ajustable, no a 0.
+HC-05b · Viabilidad Física de Traslado Entre Eventos
+Semántica: El gap entre dos eventos consecutivos en ubicaciones distintas debe ser ≥ al tiempo de traslado entre esas ubicaciones.
+Matriz de tiempos de referencia en MDP (minutos en transporte público):
+Desde \ Hacia
+	Casa
+	Casino
+	Ferro
+	Facultad
+	Güemes
+	Aldrey
+	Casa
+	—
+	30
+	25
+	20
+	15
+	18
+	Casino Rambla
+	30
+	—
+	20
+	25
+	20
+	22
+	Ferro San Juan
+	25
+	20
+	—
+	30
+	18
+	20
+	Facultad
+	20
+	25
+	30
+	—
+	10
+	12
+	Café Güemes
+	15
+	20
+	18
+	10
+	—
+	5
+	Paseo Aldrey
+	18
+	22
+	20
+	12
+	5
+	—
+	Parámetros editables: Cada celda de la matriz es editable.
+Desactivable: ❌ Nunca (es viabilidad física).
+HC-07 · Horarios de Cursada Universitaria
+Semántica: Las materias (Redes de Computadoras, AyDS, AEEC, Calidad de Software) tienen posición y duración fijas durante el cuatrimestre. Son efectivamente is_locked: true con patrón de recurrencia.
+Parámetros editables: Via RecurrenceException para casos puntuales.
+Desactivable: ❌ Nunca.
+HC-08 · Reubicación de Eventos Outdoor por Clima Extremo
+Semántica: Si un evento tiene weatherSensitivity: 'outdoor_full' y el ComfortScore proyectado es menor a weather_extreme_threshold (default: 20), el solver cambia la ubicación a una alternativa indoor.
+Prioridad de fallback: depto_contacto si el acompañante tiene departamento → cafe_guemes → paseo_aldrey.
+Parámetros editables: weather_extreme_threshold (0–50).
+Desactivable: ✅ Completamente desactivable.
+HC-09 · Sueño Mínimo Absoluto
+Semántica: En cualquier noche, Matu debe tener al menos sleep_minimum_absolute minutos de sueño (default: 360, es decir 6 horas).
+Parámetros editables: sleep_minimum_absolute (300–sleep_target_post_ferro).
+Desactivable: ⚠️ Solo ajustable.
+HC-10 · No Solapar con Turno de Trabajo
+Semántica: Ningún evento puede invadir un turno laboral confirmado, incluyendo los buffers de HC-05.
+Desactivable: ❌ Nunca.
+HC-11 · Prohibición Cognitiva Post-Llegada de Ferro
+Semántica: Durante cognitive_ban_post_ferro minutos (default: 90) después de llegar a casa tras turno Ferro, el solver no puede planificar eventos con cognitiveLoad ≥ 2.
+Fundamento: Neurológicamente, la capacidad de procesamiento de alto nivel no se recupera instantáneamente después de un turno nocturno. Planificar estudio en esa ventana es ineficiente y estresante.
+Parámetros editables: cognitive_ban_post_ferro (0–180 min). Si se pone en 0, la restricción queda inactiva de facto.
+Desactivable: ✅ Ajustando el parámetro a 0.
+7. Graduated Hard Constraints — Nuevo Tier
+7.1 La Motivación
+El problema con las HC binarias es que no capturan la realidad de muchas restricciones que son más graves a medida que se violan más, pero no imposibles de violar un poco. El caso más claro es el buffer post-consumo: 3h45 no es tan grave como 2h, y puede ser aceptable si permite hacer algo que importa mucho más.
+El sistema de GHC resuelve esto: en vez de "esto nunca puede cruzarse", dice "esto tiene un costo creciente, y si la ganancia del otro lado es suficientemente grande, el solver puede recomendar cruzarlo parcialmente, pero hay un piso que es inaceptable siempre".
+7.2 Función de Penalización GHC
+Para una GHC con valor observado $x$, objetivo $T_{target}$ y piso $T_{floor}$:
+
+
+$$\text{penalidad}_{GHC}(x) = \begin{cases} 0 & \text{si } x \geq T_{target} \\[6pt] w_{GHC} \cdot \left(\dfrac{T_{target} - x}{T_{target} - T_{floor}}\right)^2 & \text{si } T_{floor} \leq x < T_{target} \\[6pt] \infty & \text{si } x < T_{floor} \end{cases}$$
+donde $w_{GHC}$ es el peso de la GHC, configurable por el usuario (slider 0–10). Un peso más alto hace la curva más empinada y hace más difícil que el solver recomiende violarla. Un peso más bajo hace la curva más plana y permite que otras consideraciones compensen más fácilmente.
+7.3 GHC-01 · Buffer Post-Consumo de Cannabis
+Objetivo: cannabis_buffer_target = 240 minutos (4 horas, configurable)
+Piso: cannabis_buffer_floor = 120 minutos (2 horas, configurable)
+Peso: w_ghc01 = 8 (default, configurable)
+Ejemplo concreto del comportamiento:
+
+
+
+
+
+
+Escenario: La salida empieza a las 21:00 con cannabis_consumed: true.
+          T_target = 240 min → no llegar a casa antes de las 01:00
+          T_floor  = 120 min → mínimo absoluto: no antes de las 23:00
+
+Evento conflictivo: una obra de teatro que Matu quiere ver empieza
+                   a las 23:30 y requiere estar en casa a las 23:00
+                   para cambiarse. Ese evento tiene w muy alto.
+
+Evaluación del solver:
+ - Llegar a las 23:00 = buffer de 2h = en el piso (T_floor)
+   → Penalidad GHC-01 = w_ghc01 × ((240-120)/(240-120))² = w_ghc01 × 1.0 = máxima dentro del rango
+ - ¿Compensa? Si w_ghc01 = 8 y la obra tiene valor equivalente a 12 puntos
+   → La propuesta neta sigue siendo positiva
+   → El solver RECOMIENDA el plan, con advertencia explícita en el DiffViewer
+
+Resultado en DiffViewer:
+ ⚠️ GHC-01 · Buffer post-consumo acortado
+ "El buffer sería de 2h en vez de 4h (mínimo aceptable: 2h).
+  El solver propone esto porque permite asistir a [nombre del evento]
+  que tiene alta prioridad. Verificá que estás cómodo con el tiempo."
+ Impacto en Score: −8 pts (GHC-01) + 12 pts (SC-XX) = +4 neto
+ [✅ Aceptar]  [❌ Descartar]  [🔧 Ajustar buffer manualmente]
+
+Lo que nunca puede pasar: Si el buffer calculado es menor a cannabis_buffer_floor (120 min), la propuesta es inválida y el solver no la puede recomendar, sin importar qué tan valioso sea el evento conflictivo.
+8. Soft Constraints — Catálogo Completo
+Cada SC produce $P_i \in [0,1]$, multiplicada por su peso $w_i \in [0,10]$.
+SC-01 · Bloques de Estudio Continuos
+Fundamento: La concentración profunda requiere bloques de al menos study_block_min_duration minutos (default: 120) sin interrupciones.
+
+
+$$P_{01} = 1 - \frac{|\{ B \in \text{bloques\_estudio} : \text{dur}(B) \geq \texttt{study\_block\_min\_duration} \}|}{|\text{bloques\_estudio}|}$$
+Parámetros editables: study_block_min_duration.
+Peso default: 8 · Override semanal: ✅
+SC-02 · Batch Cooking Semanal
+
+
+$$P_{02} = \frac{\max(0,\, \texttt{batch\_cooking\_target} - \text{sesiones\_semana})}{\texttt{batch\_cooking\_target}}$$
+Parámetros editables: batch_cooking_target, batch_cooking_duration.
+Peso default: 5 · Override semanal: ✅
+SC-03 · Metas de Horas Semanales por Contacto
+
+
+$$P_{03} = \frac{1}{|C|} \sum_{c \in C} \max\!\left(0,\, \frac{H_c - h_c(S)}{H_c}\right)$$
+Parámetros editables: weeklyHoursGoal por contacto.
+Peso default: 6 · Override semanal: ✅
+SC-04 · Fatiga Circadiana Acumulada
+Cálculo: Acumula max(0, sleep_target_post_ferro - sueño_real) por cada noche post-Ferro. Se recupera cuando hay una noche de sueño completo (≥ sleep_target_post_ferro minutos).
+
+
+$$P_{04} = \min\!\left(1,\, \frac{\text{déficit\_acumulado\_min}}{\texttt{sleep\_target\_post\_ferro}}\right)$$
+Efecto automático: P_04 > 0.4 → sube w_sleep en 2. P_04 > 0.6 → activa preset "Recuperación".
+Peso default: 9 · Override semanal: ✅
+SC-05 · Distribución Equilibrada de Carga Diaria
+
+
+$$P_{05} = \frac{\text{Var}(\text{carga\_horaria\_por\_día})}{\text{Var\_máxima\_posible}}$$
+Peso default: 4 · Override semanal: ✅
+SC-06 · Disponibilidad de Contactos al Proponer Encuentros
+Penaliza proponer encuentros durante los busySlots declarados de un contacto. Nunca bloquea — solo informa.
+
+
+$$P_{06} = \frac{|\text{slots en solapamiento con busySlots}|}{\text{dur}(E)}$$
+Peso default: 3 · Override semanal: ✅
+SC-07 · Preferencias Horarias Personales
+Penaliza eventos fuera de las ventanas de energía declaradas por el usuario.
+Parámetros editables: energyPeakHours, preferredStudyHours.
+Peso default: 6 · Override semanal: ✅
+SC-08 · Usar Buen Clima para Social/Outdoor (Proactivo)
+Nueva semántica: El sistema detecta ventanas de ComfortScore > comfort_opportunity_threshold (default: 70, editable) en el forecast semanal. Si esas ventanas coinciden con tiempo libre disponible y no tienen actividad social u outdoor planificada, se penaliza.
+Parámetros editables: comfort_opportunity_threshold.
+Peso default: 7 · Override semanal: ✅
+SC-08b · Usar Mal Clima para Productividad (Nuevo)
+Semántica: Si hay un período de ComfortScore < comfort_indoor_threshold (default: 40, editable) y no hay actividad productiva (estudio, batch cooking, AyDS, etc.) planificada en ese tiempo, se penaliza. El fundamento: el clima malo es el momento natural para las cosas que se pueden hacer bien en casa sin "desperdiciar" tiempo de buen clima.
+Importante: Esta SC nunca bloquea actividades sociales en mal clima. Solo penaliza el caso en que hay tiempo libre en mal clima que tampoco tiene nada productivo.
+Parámetros editables: comfort_indoor_threshold.
+Peso default: 4 · Override semanal: ✅
+SC-09 · Sin Tiempo Muerto Corto Entre Eventos de Distinta Naturaleza
+Penaliza gaps de menos de dead_time_threshold minutos (default: 20) entre eventos de categorías distintas.
+
+
+$$P_{09} = \frac{|\{(E_i, E_{i+1}) : 0 < \text{gap} < \texttt{dead\_time\_threshold} \;\land\; \text{cat}(E_i) \neq \text{cat}(E_{i+1})\}|}{|\text{pares}|}$$
+Parámetros editables: dead_time_threshold.
+Peso default: 5 · Override semanal: ✅
+SC-10 · Economía Energética — Secuenciación por Carga
+Penaliza secuencias donde el gap entre eventos es menor al tiempo de recuperación requerido por el evento anterior.
+Perfiles de actividad (todos editables como tabla en configuración):
+Actividad
+	CogLoad
+	PhysLoad
+	Recovery (min)
+	Parcial / examen
+	3
+	0
+	90
+	Estudio intensivo
+	3
+	0
+	30
+	Gym
+	0
+	3
+	60
+	Turno Ferro
+	1
+	2
+	30
+	Cursada
+	2
+	0
+	20
+	Mate con amigos
+	0
+	0
+	0
+	Batch cooking
+	1
+	1
+	0
+	Peso default: 8 · Override semanal: ✅
+SC-11 · Comidas y Descansos en Jornadas Largas
+Penaliza jornadas de más de long_session_no_meal_threshold minutos (default: 300) sin un bloque de comida.
+Parámetros editables: long_session_no_meal_threshold.
+Peso default: 7 · Override semanal: ✅
+SC-12 · Tiempo de Traslado Total Diario
+Penaliza si el tiempo total de traslado en un día supera travel_time_max_daily minutos (default: 90).
+Parámetros editables: travel_time_max_daily.
+Peso default: 4 · Override semanal: ✅
+SC-13 · Presupuesto Semanal Estimado
+Penaliza si el gasto estimado total supera weekly_budget_ars (sin límite por default → SC inactiva).
+Parámetros editables: weekly_budget_ars.
+Peso default: 3 · Override semanal: ✅ · Desactivable total: ✅ (si no hay presupuesto configurado)
+SC-14 · Sin Exceso de Cambios de Contexto en un Día
+Penaliza si hay más de context_switches_max (default: 4) cambios de categoría de actividad en un día.
+Parámetros editables: context_switches_max.
+Peso default: 6 · Override semanal: ✅
+SC-15 · Slots de Serendipia Social Semanales
+Penaliza semanas sin al menos serendipity_slots_per_week slots abiertos para lo social inesperado (default: 2).
+Parámetros editables: serendipity_slots_per_week.
+Peso default: 5 · Override semanal: ✅
+SC-16 · Equilibrio con Vínculo Delicado (Lau)
+Semántica: SC opcional. Cuando está activa, penaliza semanas con más de sensitive_contact_weekly_limit encuentros con el contacto marcado como sensitive (Lau). Permite cuidar el vínculo sin imponer un límite duro.
+Parámetros editables: sensitive_contact_weekly_limit (default: 2, si la SC está activa).
+Peso default: 0 (inactiva por defecto) · Override semanal: ✅
+Activación: En el panel de contactos, el usuario puede activarla por contacto. La curva de penalización es suave — un encuentro extra no es grave, dos extras ya penaliza más.
+9. La Función de Penalización Unificada
+9.1 Fórmula General
+La función que el solver minimiza integra los tres tiers:
+
+
+$$\text{Costo\_total}(S) = \underbrace{\sum_{\text{GHC violadas}} \text{penalidad}_{GHC}}_{\text{Tier 2}} + \underbrace{\sum_{i=1}^{16} w_i \cdot P_i(S)}_{\text{Tier 3 (SCs)}}$$
+Las HCs (Tier 1) actúan como filtros: si se violan, el estado es descartado antes de llegar a la función de costo.
+9.2 El Score de Bienestar
+El Score es la normalización del costo en escala 0–100:
+
+
+$$\text{Score}(S) = 100 \times \left(1 - \frac{\text{Costo\_total}(S)}{\text{Costo\_máximo\_posible}}\right)$$
+10. Los Meta-Sliders de Prioridad Global
+10.1 Concepto
+Los meta-sliders son tres ejes de tensión que representan dilemas reales de vida. Están por encima de los sliders individuales de las SCs: cuando se mueven, ajustan grupos de pesos simultáneamente, sin reemplazar la posibilidad de ajuste fino individual.
+Visualmente: son tres sliders en la pantalla principal (o en la sesión de planificación), con nombre y descripción. No son técnicos — hablan el lenguaje de Matu.
+10.2 Los Tres Meta-Sliders
+Meta-Slider 1 · Profundidad Social ↔ Amplitud Social
+
+
+
+
+
+
+← Sostener lo que tengo ─────────────────── Conocer gente nueva →
+       [●──────────────────────────────────────────────]
+
+Extremo izquierdo
+	Extremo derecho
+	Boost SC-03 (metas con contactos conocidos)
+	Reduce SC-03
+	Reduce SC-15 (menos necesidad de serendipia)
+	Boost SC-15 (más slots abiertos)
+	Boost SC-06 (respetar disponibilidad de conocidos)
+	Reduce SC-06
+	Meta-Slider 2 · Productividad ↔ Disfrute
+
+
+
+
+
+
+← Enfocado en el estudio/trabajo ──────────────── Modo social/libre →
+       [────────────────●──────────────────────────────]
+
+Extremo izquierdo
+	Extremo derecho
+	Boost SC-01 (bloques estudio)
+	Reduce SC-01
+	Boost SC-02 (batch cooking)
+	Reduce SC-02
+	Reduce SC-03 y SC-15
+	Boost SC-03 y SC-15
+	Boost SC-08b (usar mal clima para productividad)
+	Reduce SC-08b
+	Meta-Slider 3 · Introversión ↔ Extroversión
+
+
+
+
+
+
+← Encontrarme a mí mismo ──────────────────── Encontrarme con gente →
+       [──────────────●────────────────────────────────]
+
+Extremo izquierdo
+	Extremo derecho
+	Protege recovery slots (tiempo solo intencional)
+	Reduce protección de tiempo solo
+	Reduce SC-03, SC-15
+	Boost SC-03, SC-15
+	Boost SC-04 (fatiga — más descanso)
+	Reduce SC-04 weight
+	Boost SC-08b (hacer cosas en casa)
+	Reduce SC-08b
+	10.3 Cómo Interactúan con los Sliders Individuales
+Los meta-sliders aplican un multiplicador sobre los pesos base de las SCs afectadas. El usuario puede siempre ir al panel individual y ajustar fino, y ese ajuste fino prevalece.
+
+
+
+
+
+
+TypeScript
+// Pseudocódigo de la interacción:
+effectiveWeight(sc) = baseWeight(sc) × metaSliderMultiplier(sc) × weeklyOverrideFactor(sc)
+
+// Los multiplicadores de los meta-sliders están en el rango [0.5, 2.0]
+// Si el meta-slider está centrado (posición 5/10), el multiplicador es 1.0 (sin efecto)
+
+10.4 Preset de Meta-Sliders por Contexto
+Contexto
+	Slider 1
+	Slider 2
+	Slider 3
+	Semana de examen
+	Centro
+	Muy izquierda (productividad)
+	Ligeramente izquierda
+	Período social intenso
+	Ligeramente derecha
+	Muy derecha
+	Muy derecha
+	Recuperación post-Ferro
+	Centro
+	Centro
+	Muy izquierda
+	Quiero conocer gente
+	Muy derecha
+	Ligeramente derecha
+	Muy derecha
+	Introspección / relax
+	Centro
+	Ligeramente izquierda
+	Muy izquierda
+	11. El Modelo Social Abierto
+11.1 Las Tres Capas
+
+
+
+
+
+
+CAPA A — Contactos con Restricciones Explícitas
+ Juancito, Juani, Lau — perfiles con busy_slots, metas o SCs activas
+ Sus restricciones son SCs que informan al solver, nunca lo bloquean
+
+CAPA B — Contactos en Construcción
+ Gente del trabajo, la facu, conocidos nuevos
+ Perfil se completa progresivamente con el uso (lazy profiling)
+
+CAPA C — Slots de Serendipia
+ 2 slots/semana por default (mid-week + fin de semana)
+ Tiempo deliberadamente reservado para lo inesperado
+ Visual: borde punteado, color tenue — no son huecos vacíos
+
+11.2 Semántica Fundamental
+Los busySlots de un contacto → activan SC-06 (penalización), nunca bloquean la agenda de Matu. El tiempo de Matu es de Matu. El sistema advierte; la decisión es de él.
+11.3 Los Slots de Serendipia
+
+
+
+
+
+
+TypeScript
+type SocialOpportunitySlot = Event & {
+ category: 'social_opportunity';
+ isOpenSocialSlot: true;
+ // No tiene contacts asignados — deliberadamente abierto
+ suggestedMood?: 'energetic' | 'chill' | 'any';
+};
+
+El solver los genera automáticamente en la planificación semanal según serendipity_slots_per_week y los posiciona en ventanas de buen clima (SC-08) cuando es posible.
+11.4 El Hogar como Espacio Social
+El hogar de Matu no es el fallback general para mal clima en actividades sociales. Es apropiado para:
+* Juani (10 min, amigo muy cercano) — ocasionalmente
+* Juancito (30 min, amigo cercano) — menos frecuente
+* Estudio (siempre)
+* Batch cooking (siempre)
+* Descanso / recovery (siempre)
+Para actividades sociales con personas no muy cercanas o con mal clima, las alternativas son: café en Güemes, paseo Aldrey, departamento de un contacto. El solver entiende esto y no propone "ir a casa de Matu" como alternativa indoor para social casual.
+12. El Sistema Meteorológico y la Estrategia Indoor
+12.1 Fuente de Datos
+Open-Meteo API — gratuita, sin API key, resolución horaria, coordenadas MDP: lat: -38.00, lon: -57.55. Cache: 6 horas (para modo offline).
+12.2 Las Tres Dimensiones del Clima
+
+
+
+
+
+
+TypeScript
+type WeatherCondition = {
+ timestamp: Date;
+ precipitationProbability: number;   // 0.0–1.0
+ precipitationMm: number;
+ windSpeedKmh: number;
+ windDirection: CardinalDirection;
+ temperatureCelsius: number;
+ feelsLikeCelsius: number;
+ comfortScore: number;               // 0–100, computado
+};
+
+12.3 Función de Confort
+
+
+$$\text{ComfortScore} = 100 - P_{lluvia} \cdot 40 - P_{viento} \cdot 30 - P_{frío} \cdot 30$$
+
+
+$$P_{lluvia} = \min\!\left(1,\, \frac{\text{precipProb}}{0.35} + \frac{\text{precipMm}}{5}\right)$$
+
+
+$$P_{viento} = k_{SE} \cdot \min\!\left(1,\, \frac{\max(0,\, v - 20)}{25}\right), \quad k_{SE} = \begin{cases} 1.3 & \text{si dirección} \in \{SE, S, E\} \\ 1.0 & \text{resto} \end{cases}$$
+
+
+$$P_{frío} = \min\!\left(1,\, \frac{\max(0,\, 10 - \text{feelsLike})}{10}\right)$$
+12.4 La Estrategia del Sistema Frente al Clima
+La estrategia tiene tres reglas, en orden de prioridad:
+Regla 1 — Si surge algo social con mal clima, siempre vale.
+Si hay una joda en lo de alguien, una invitación, algo concreto → el solver nunca lo bloquea por el clima. SC-08b no penaliza si hay actividad social planificada, aunque el clima sea malo.
+Regla 2 — Buen clima → proteger para social/outdoor.
+Las ventanas de ComfortScore > comfort_opportunity_threshold (default: 70) se ofrecen activamente para actividades sociales u outdoor. SC-08 penaliza si esas ventanas se usan para estudio o batch cooking pudiendo reservarse mejor.
+Regla 3 — Mal clima → inclinarse hacia estudio/productividad.
+Las ventanas de ComfortScore < comfort_indoor_threshold (default: 40) con tiempo libre disponible se sugieren para estudio, batch cooking o actividades productivas en casa. SC-08b penaliza si ese tiempo queda vacío sin nada productivo. No bloquea lo social.
+12.5 Sensibilidad al Clima por Tipo de Actividad
+Actividad
+	ComfortScore mínimo
+	¿Tolera lluvia en el traslado?
+	Fallback indoor
+	Playa
+	75
+	No
+	Café Güemes
+	Caminata rambla
+	55
+	No
+	Paseo Aldrey
+	Plaza exterior
+	50
+	No
+	Café cercano
+	Café Güemes
+	0
+	Sí
+	—
+	Gym
+	0
+	Sí
+	—
+	Paseo Aldrey
+	0
+	Sí
+	—
+	Depto de contacto
+	0
+	Sí
+	—
+	12.6 Regla de Oro del Clima
+El clima nunca elimina un evento del calendario. Solo activa HC-08 (reubicación si es extremo) o modifica el ranking de sugerencias. El usuario tiene siempre la última palabra.
+13. Eventos Recurrentes y Excepciones
+13.1 El Modelo
+
+
+
+
+
+
+TypeScript
+type RecurrencePattern = {
+ id: string;
+ frequency: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+ daysOfWeek?: DayOfWeek[];
+ startDate: Date;
+ until?: Date;           // Fin del cuatrimestre, fin del contrato
+ occurrenceCount?: number;
+ exceptions: RecurrenceException[];
+};
+
+type RecurrenceException = {
+ date: Date;
+ type: 'skip' | 'reschedule' | 'modify';
+ override?: Partial<Event>;
+ note?: string;
+};
+
+13.2 UI de Gestión
+Al tocar una ocurrencia:
+
+
+
+
+
+
+[Editar solo esta ocurrencia]      → RecurrenceException tipo 'modify'
+[Eliminar solo esta ocurrencia]    → RecurrenceException tipo 'skip'
+[Editar desde aquí en adelante]    → Split del patrón raíz
+[Editar todas las ocurrencias]     → Modifica el patrón raíz
+
+14. El Modelo de Datos Completo
+14.1 Tipos de Ubicación
+
+
+
+
+
+
+TypeScript
+type LocationType =
+ | 'casa'              | 'rambla_casino'      | 'ferro_san_juan'
+ | 'facultad'          | 'exterior_rambla'    | 'exterior_plaza'
+ | 'cafe_guemes'       | 'paseo_aldrey'       | 'gym'
+ | 'depto_contacto'    | 'custom';
+
+14.2 Categorías de Evento
+
+
+
+
+
+
+TypeScript
+type EventCategory =
+ | 'trabajo'           | 'cursada'            | 'estudio'
+ | 'social'            | 'gym'                | 'batch_cooking'
+ | 'comida'            | 'sueno'              | 'traslado'
+ | 'tramites'          | 'desarrollo_personal'| 'recuperacion'
+ | 'buffer_post_consumo'| 'social_opportunity'| 'preparacion_buffer'
+ | 'otro';
+
+14.3 El Tipo Evento
+
+
+
+
+
+
+TypeScript
+type Event = {
+ id: string;
+ name: string;
+ category: EventCategory;
+ emoji?: string;
+
+ // Tiempo
+ start: Date;              // UTC interno; display en ART (UTC-3)
+ duration: number;         // Minutos, múltiplos de 15
+ is_locked: boolean;       // Controlado por un toggle UI explícito en cada evento
+
+ // Recurrencia
+ recurrenceId?: string;
+ isRecurrenceException?: boolean;
+ exceptionFor?: Date;
+
+ // Ubicación y clima
+ location: Location;
+ weatherSensitivity: 'none' | 'transit_only' | 'outdoor_full';
+
+ // Social
+ contacts?: string[];
+ isOpenSocialSlot?: boolean;
+
+ // Carga energética
+ cognitiveLoad: 0 | 1 | 2 | 3;
+ physicalLoad: 0 | 1 | 2 | 3;
+
+ // Economía
+ estimatedCostARS?: number;
+ costCategory?: 'free' | 'cheap' | 'moderate' | 'expensive';
+
+ // Privacidad/sensibilidad
+ is_sensitive: boolean;
+ cannabis_consumed?: boolean;   // Activa GHC-01
+ displayAlias?: string;         // Para exportaciones a calendarios externos
+ notesEncrypted?: string;
+
+ // Flags del solver
+ isAutoGenerated?: boolean;
+ autoGeneratedReason?: string;
+ isRecoverySlot?: boolean;
+ isPreparationBuffer?: boolean;
+
+ // Dependencias inter-evento
+ dependsOn?: EventDependency[];
+
+ // Sync
+ createdAt: Date;
+ updatedAt: Date;
+ deviceId: string;
+ localVersion: number;
+ syncStatus: 'synced' | 'pending' | 'conflict';
+};
+
+14.4 Configuración Global del Sistema
+
+
+
+
+
+
+TypeScript
+type MiMesaConfig = {
+ userId: string;
+ deviceId: string;
+
+ // Constraints
+ hardConstraints: Record<HardConstraintId, HardConstraintConfig>;
+ graduatedHardConstraints: Record<GHCId, GHCConfig>;
+ softConstraints: Record<SoftConstraintId, SoftConstraintConfig>;
+ weeklyOverrides: WeeklyConstraintOverride[];
+
+ // Parámetros numéricos editables (Principio P9)
+ params: ConstraintParams;    // Todos los valores de la tabla de §5.2
+
+ // Meta-sliders (0–10)
+ metaSliders: {
+   depthVsAmplitudeSocial: number;   // 0=sostener lo que tengo, 10=conocer gente nueva
+   productivityVsEnjoyment: number;  // 0=enfocado en estudio, 10=modo social
+   introvertVsExtrovert: number;     // 0=encontrarme a mí mismo, 10=con gente
+ };
+
+ // Contactos
+ contacts: Contact[];
+
+ // Clima
+ weatherLocation: { lat: number; lon: number };
+ activityWeatherProfiles: ActivityWeatherProfile[];
+
+ // Preferencias horarias
+ energyPeakHours: { start: string; end: string };
+ preferredStudyHours: { start: string; end: string };
+
+ // Economía
+ weeklyBudgetARS?: number;
+ personalGoals: PersonalGoal[];
+
+ // Planificación
+ weeklyPlanningDay: DayOfWeek;
+ weeklyPlanningTime: string;
+ dailyMicroAdjustTime: string;
+
+ // Sync
+ syncEnabled: boolean;
+ supabaseUserId?: string;
+ localOnlyFields: string[];
+
+ // Aprendizaje
+ patternLearningEnabled: boolean;
+};
+
+15. El Algoritmo CSP
+15.1 Por Qué CSP y No LLM
+Un LLM produce respuestas plausibles, no garantías matemáticas. El CSP garantiza que la solución satisface todas las HCs al 100% y minimiza las GHCs y SCs de forma determinista, en menos de 50ms, offline, sin cuota, sin deprecación.
+15.2 Pipeline del Solver
+
+
+
+
+
+
+TypeScript
+function solveMiMesa(input: SolverInput): SolverResult {
+ const { fixed, movable } = partitionEvents(input.schedule);
+
+ // Fase 1: AC-3 — Propagación de Restricciones
+ // Reduce dominios (slots posibles por variable) antes de buscar
+ const domains = propagateAC3(movable, fixed, input.constraints, input.weather);
+
+ // Fase 2: MRV — Ordenar por Minimum Remaining Values
+ const ordered = sortByMRV(movable, domains);
+
+ // Fase 3: Backtracking con Forward Checking
+ // Solo valida HCs (binarias) — las GHCs se tratan en la fase 4
+ const hardSolution = backtrackWithFC(ordered, domains, input.hardConstraints);
+ if (!hardSolution) return { feasible: false, violations: detectViolations(...) };
+
+ // Fase 4: Optimización Local (Hill Climbing)
+ // Minimiza: Σ penalidad_GHC + Σ w_i × P_i(SCs)
+ // El solver puede cruzar GHCs si la ganancia neta es positiva
+ const optimized = localSearchOptimize(hardSolution, input.weights, maxIter: 500);
+
+ // Fase 5: Post-Procesado
+ // Insertar buffers automáticos (GHC-01, HC-03, HC-05)
+ // Fusionar gaps < dead_time_threshold (SC-09)
+ // Insertar SocialOpportunitySlots (SC-15)
+ const final = postProcess(optimized, input.constraints);
+
+ return {
+   feasible: true,
+   schedule: final,
+   score: computeScore(final, input.weights),
+   constraintTrace: buildTrace(input.schedule, final),
+   solvingTimeMs: performance.now() - t0,
+ };
+}
+
+15.3 El Constraint Trace
+
+
+
+
+
+
+TypeScript
+type ConstraintTrace = {
+ eventId: string;
+ changeType: 'moved' | 'resized' | 'relocated' | 'auto_inserted' | 'removed';
+ primaryTrigger: {
+   constraintId: string;     // "GHC-01", "SC-08", "HC-03"
+   constraintName: string;
+   explanation: string;      // Texto legible para el usuario
+   severity: 'hard' | 'graduated' | 'soft';
+ };
+ secondaryTriggers?: { constraintId: string; explanation: string }[];
+ scoreImpact: number;
+ previousSlot?: TimeSlot;
+ newSlot?: TimeSlot;
+ ghcViolationAmount?: number;    // Si es una GHC cruzada: cuántos minutos corto
+ alternativesConsidered?: { slot: TimeSlot; scoreIfChosen: number; whyRejected: string }[];
+};
+
+16. Sincronización Multi-Dispositivo
+16.1 Qué se Sincroniza
+Dato
+	Sincronizado
+	Motivo
+	Eventos no sensibles
+	✅ Supabase TLS
+	Acceso multi-dispositivo
+	Contactos no sensibles
+	✅
+	
+
+	Configuración y params
+	✅
+	
+
+	Meta-sliders
+	✅
+	
+
+	Historial de scores
+	✅
+	
+
+	cannabis_consumed
+	❌ Local only
+	Dato sensible
+	Notas de eventos sensibles
+	❌ Local only
+	
+
+	Alias privados de contactos
+	❌ Local only
+	
+
+	AILogs
+	❌ Local only
+	
+
+	16.2 Modo Offline
+
+
+
+
+
+
+Sin red: CSP solver 100% local ✅ · Open-Meteo usa cache (máx 6h) ⚠️
+        LLM no disponible ⚠️ → solo input manual · Sync pendiente 🔴
+
+PARTE IV — DISEÑO DE EXPERIENCIA
+17. La Sesión de Planificación Semanal
+17.1 El Ritual
+Domingo a las 21:00 (configurable). No es una notificación que el usuario ignora. Es una pantalla dedicada, un ritual de 3–7 minutos para entrar en la semana con intención.
+17.2 Flujo de 5 Pasos
+Paso 1 — Contexto personal + Meta-Sliders
+
+
+
+
+
+
+¿Cómo venís para esta semana?
+[😴 Bastante cansado]  [😐 Normal]  [⚡ Con ganas]
+
+¿Hay algo especial?
+[📚 Semana de examen]  [😌 Semana normal]  [🤝 Quiero conectar con gente]
+
+¿Cómo está tu energía esta semana?   ← Meta-Slider 2
+Estudio ─────────────●───────────── Social
+
+¿Querés conocer gente nueva o sostener lo que tenés?  ← Meta-Slider 1
+Sostener ──────────────────●──────── Ampliar
+
+¿Querés tiempo solo o con gente?  ← Meta-Slider 3
+Solo ──────────●──────────────── Con gente
+
+¿Algún cambio que ya sepas?  [+ Agregar]   [Continuar →]
+
+Paso 2 — Panorama climático
+
+
+
+
+
+
+🌤️ Clima MDP — Semana 38
+Lun 🌧️11°  Mar ⛅14°  Mié ☀️18°  Jue ☀️17°  Vie 🌬️13°  Sáb ☀️19°  Dom 🌧️12°
+
+✨ Ventanas de buen clima (aprovechar para social): Mié 14–18h · Sáb 10–17h
+🎓 Tiempo sugerido para estudio (clima malo): Lun tarde · Dom mañana
+
+Paso 3 — Confirmación de fijos + excepciones
+Lista de eventos is_locked de la semana. Opción de agregar excepciones puntuales.
+Paso 4 — Intenciones sociales
+
+
+
+
+
+
+¿Con quién querés conectar esta semana?
+Juancito  [✅ Sí]  → meta 5h · último encuentro hace 5 días
+Juani     [✅ Sí] [⬜ Esta semana no]  → meta 3h
+Lau       [✅ Sí] [⬜ No]  → sin límite · SC-16 inactiva
+
++ ¿Alguien más?  [Escribir nombre]
+
+Slots de serendipia (para lo inesperado):  [0]  [1]  [✅ 2]  [3]
+[Continuar →]
+
+Paso 5 — Solver + Resumen + DiffViewer
+18. El DiffViewerModal con Constraint Trace
+Cada cambio propuesto por el solver está acompañado de su razón, las alternativas consideradas y el impacto en Score. El usuario aprueba, descarta o edita cambio por cambio.
+Para las GHCs cruzadas, el DiffViewer muestra la situación con especial claridad:
+
+
+
+
+
+
+⚠️ GHC-01 · Buffer post-consumo acortado (3h30 en vez de 4h)
+"El solver propone esto porque permite llegar a [evento de alta prioridad].
+El buffer de 3h30 está dentro del rango aceptable (mínimo: 2h).
+¿Estás cómodo con este tiempo?"
+
+Impacto: −6.4 pts (GHC-01) + 10 pts (SC relevante) = +3.6 neto
+[✅ Aceptar]  [❌ Descartar]  [🔧 Ajustar el tiempo manualmente]
+
+19. El Panel de Restricciones Configurable
+19.1 Estructura
+
+
+
+
+
+
+⚙️ Panel de Restricciones                               Score semana: 74/100
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎚️ META-SLIDERS (Prioridades generales)
+ Profundidad ←────●──────────────────→ Amplitud social          [5/10]
+ Productividad ←──────●──────────────→ Disfrute/social          [6/10]
+ Solo ←────────────────────●──────────→ Con gente               [7/10]
+
+🔴 HARD CONSTRAINTS
+ [🔒] HC-01 · No solapamiento                        [siempre ON]
+ [🔒] HC-02 · Eventos locked no se mueven            [siempre ON]
+ [🔒] HC-03 · Sueño post-Ferro  [target: 8h ✏️]     [siempre ON]
+ [🔒] HC-05 · Traslados  [Casino:30min ✏️ Ferro:45min ✏️]    [ON]
+ [🔒] HC-05b· Viabilidad de traslado                 [siempre ON]
+ [🔒] HC-07 · Horarios de cursada                    [siempre ON]
+ [⚙️] HC-08 · Clima extremo  [umbral: 20 ✏️]               [ON ↔]
+ [⚙️] HC-09 · Sueño mínimo  [mín: 6h ✏️]            [siempre ON]
+ [🔒] HC-10 · No solapar con trabajo                 [siempre ON]
+ [⚙️] HC-11 · Ban cognitivo post-Ferro  [90min ✏️]          [ON ↔]
+
+🟠 GRADUATED HARD CONSTRAINTS
+ [⚙️] GHC-01· Buffer post-consumo
+       Target: 4h ✏️  |  Piso: 2h ✏️  |  Peso: ████████░░ 8
+
+🟡 SOFT CONSTRAINTS
+ [✅] SC-01 · Bloques estudio ≥ [120min ✏️]    ████████░░ 8  [sem: normal]
+ [✅] SC-02 · Batch cooking [2×/sem ✏️]        █████░░░░░ 5  [sem: OFF ⚡]
+ [✅] SC-03 · Metas sociales                   ██████░░░░ 6  [sem: normal]
+ [✅] SC-04 · Fatiga circadiana                █████████░ 9  [sem: normal]
+ [✅] SC-05 · Distribución equilibrada         ████░░░░░░ 4  [sem: normal]
+ [✅] SC-06 · Disponib. contactos              ███░░░░░░░ 3  [sem: normal]
+ [✅] SC-07 · Preferencias horarias            ██████░░░░ 6  [sem: normal]
+ [✅] SC-08 · Buen clima para social           ███████░░░ 7  [sem: normal]
+ [✅] SC-08b· Mal clima para productividad     ████░░░░░░ 4  [sem: normal]
+ [✅] SC-09 · Sin tiempo muerto [20min ✏️]     █████░░░░░ 5  [sem: normal]
+ [✅] SC-10 · Economía energética              ████████░░ 8  [sem: normal]
+ [✅] SC-11 · Comidas y descansos [300min ✏️]  ███████░░░ 7  [sem: normal]
+ [✅] SC-12 · Traslado total [90min/día ✏️]    ████░░░░░░ 4  [sem: normal]
+ [⬜] SC-13 · Presupuesto  [sin límite ✏️]     ███░░░░░░░ 3  [sem: OFF]
+ [✅] SC-14 · Cambios contexto [4/día ✏️]      ██████░░░░ 6  [sem: normal]
+ [✅] SC-15 · Slots serendipia [2/sem ✏️]      █████░░░░░ 5  [sem: normal]
+ [⬜] SC-16 · Equilibrio Lau  [2×/sem ✏️]      ░░░░░░░░░░ 0  [inactiva]
+
+[💾 Guardar como preset "Semana examen"]   [🔄 Restaurar defaults]
+
+19.2 Edición de Parámetros Numéricos
+El icono ✏️ junto a cualquier valor numérico abre un input inline editable. Al cambiar el valor, el solver recalcula el Score en tiempo real (en < 50ms) sin requerir confirmación — el usuario ve el impacto inmediatamente.
+20. El Score y su Descomposición
+20.1 Qué Mide
+El Score (0–100) mide la alineación entre la agenda real y los valores declarados del usuario. No mide productividad ni ocupación. Una semana tranquila bien descansada puede puntuar 88.
+20.2 Anillo de Color
+* < 40: 🔴 — problemas serios de bienestar
+* 40–65: 🟡 — margen de mejora notable
+* 66–85: 🟢 — buena semana
+* 86–100: ✨ — excelente alineación
+20.3 Drill-Down con GHCs Visibles
+El desglose muestra HCs, GHCs y SCs en secciones separadas:
+
+
+
+
+
+
+Desglose del Score: 74/100
+──────────────────────────────────────────────────────
+🟠 GRADUATED HARD CONSTRAINTS (impacto esta semana):
+ GHC-01 Buffer post-consumo  ████░░░░  −4.8 pts
+         (buffer fue 3h20 en vez de 4h el martes)
+
+🟡 SOFT CONSTRAINTS:
+ SC-04 Fatiga circadiana     ████░░░░  −6.2 pts
+ SC-01 Bloques de estudio    ███░░░░░  −4.8 pts
+ SC-11 Comidas/descansos     ██░░░░░░  −2.8 pts
+ SC-02 Batch cooking         ░░░░░░░░   0.0 pts ✓
+ ...
+
+💡 Para ganar +5 pts:
+  → Proteger el bloque de estudio del martes
+  → Agregar comida el miércoles
+[Aplicar sugerencias]  [No, está bien así]
+
+21. Modo "¿Qué Hago Ahora?"
+Botón ⚡ ¿Qué hago? siempre visible. El solver corre en horizonte de 2h con el estado de ánimo actual como input, y ofrece opciones rankeadas según:
+* Estado de ánimo ingresado (energético/normal/cansado)
+* ComfortScore actual (buen clima → prioriza outdoor/social)
+* Fatiga acumulada
+* Metas semanales en riesgo
+* Disponibilidad de contactos
+Las opciones reflejan la estrategia climática: si hace buen clima, la primera sugerencia será social/outdoor; si llueve, será estudio o batch cooking.
+22. La Retrospectiva Semanal
+Al iniciar la planificación del domingo, antes de planificar la semana nueva:
+
+
+
+
+
+
+📋 Retrospectiva · Semana 37
+Score real: 71/100 (proyectado: 74)
+
+✅ Batch cooking 2/2 · Juancito 4.5h de 5h
+❌ Estudio: 6h vs 9h proyectadas (−33%)
+  Moviste manualmente 2 bloques. ¿Por qué?
+  [Estaba cansado]  [Surgió algo]  [Ese horario no me va]
+
+⚠️ Caminata del viernes cancelada (viento 52 km/h)
+  ¿En el futuro la reubicamos automáticamente?  [Sí]  [No, preguntarme]
+
+23. Sistema de Aprendizaje de Patrones
+El sistema detecta patrones en el historial y sugiere convertirlos en reglas. Nunca activa nada automáticamente. Threshold: confianza ≥ 0.75 con ≥ 5 observaciones.
+Ejemplos: "Los lunes post-Ferro, moviste el estudio al día siguiente 5 veces." / "Con Juancito, el 80% de las veces terminan en Güemes."
+24. Modo Simulación "Y si..."
+El solver corre sobre una copia del schedule con cambios hipotéticos, sin afectar el calendario real. Muestra comparación de Score y métricas de bienestar entre el estado actual y el simulado.
+25. Modelo Económico en ARS
+Estimación por categoría de actividad (no requiere ingreso de gastos reales). Activa SC-13 si hay presupuesto configurado. Todos los valores de la tabla son editables.
+Actividad
+	ARS estimado
+	Categoría
+	Playa, caminata, estudio, casa
+	$0
+	Free
+	Colectivo local
+	$850
+	Cheap
+	Mate en café
+	$2.500
+	Cheap
+	Café con comida
+	$8.000
+	Moderate
+	Cine
+	$10.000
+	Moderate
+	Bowling Aldrey
+	$12.000
+	Moderate
+	Salida nocturna
+	$20.000
+	Expensive
+	26. Arquitectura de Notificaciones
+Tipo
+	Prioridad
+	Canal
+	Sound
+	GHC-01 buffer expira en 30 min
+	🔴 Crítica
+	Push + banner
+	Solo vibración
+	HC-03 sueño post-Ferro
+	🔴 Alta
+	Push silencioso
+	❌
+	HC-08 reubicación por clima
+	🟡 Media
+	In-app
+	❌
+	Planificación semanal (domingo 21:00)
+	🟡 Media
+	Push
+	✅ Suave
+	Briefing diario (08:00)
+	🟢 Baja
+	In-app
+	❌
+	Ventana de buen clima detectada
+	🟢 Baja
+	In-app card
+	❌
+	Sugerencia de patrón
+	🟢 Baja
+	In-app card
+	❌
+	Throttling: Máximo 3 push/día · Silencio 23:00–08:00 (excepto GHC-01) · Notificaciones low-priority acumuladas y enviadas juntas.
+27. Privacidad
+La app es de uso personal exclusivo — no requiere mecanismos de ocultamiento en la pantalla. La privacidad relevante es sobre datos:
+Datos que nunca salen del dispositivo: cannabis_consumed, notas de eventos sensibles, alias privados de contactos, AILogs.
+Datos que se sincronizan encriptados en tránsito: eventos, contactos, configuración (todo lo no-sensible).
+Para exportación a Google Calendar / iCal: Eventos con is_sensitive: true se exportan como "Ocupado" sin descripción, ubicación ni contactos. cannabis_consumed nunca se exporta.
+Notificaciones: Los eventos sensibles muestran solo "{emoji} {hora}" en la notificación, sin nombre ni detalles.
+28. Onboarding
+28.1 Flujo de 5 Pantallas
+1/5 — Trabajo: Sucursales y horarios. Los buffers se configuran automáticamente.
+2/5 — Universidad: Materias del cuatrimestre. Import via SmartScheduleImporter (screenshot SIU Guaraní) o ingreso manual.
+3/5 — Personas: Hasta 3 contactos con nombre y tipo. El resto se completa progresivamente.
+4/5 — Preferencias generales: Los tres meta-sliders en posición inicial. Presupuesto semanal (opcional).
+5/5 — Primera planificación: Inicia directamente la Sesión de Planificación Semanal.
+28.2 Perfilado Progresivo
+Al segundo encuentro con un contacto: "¿Sabés si [nombre] tiene horarios fijos?"
+Al tercer encuentro: "¿Tiene depto propio?"
+Opción: "No me hagas más preguntas de [nombre]" → suprime todos los futuros prompts de ese contacto.
+29. La Vista Principal del Calendario
+29.1 Vistas Diaria y Semanal
+El núcleo de navegación del usuario ocurre en un calendario que debe contar con una vista diaria y una vista semanal.
+29.2 Representación Espacial del Tiempo
+La interfaz de la grilla horaria tiene una correspondencia visual estricta con la realidad: el tamaño (altura) y la ubicación de los bloques de eventos deben tener relación directa y proporcional con los horarios y la duración en los que transcurren. Un evento de dos horas ocupará exactamente el doble de espacio vertical que uno de una hora, permitiendo percibir los espacios y tiempos libres de forma intuitiva con un solo vistazo.
+29.3 Lock Universal en Cada Evento
+Cada evento que haya en el calendario debe tener una opción rápida, visible y accesible para lockearlo (mediante un toggle o icono de candado). Al activar esta opción, el evento adquiere el estado is_locked: true e invoca inmediatamente la restricción HC-02. A partir de ese momento, ninguna recomendación, rutina del solver o recalibración automática intentará quitar, modificar o mover ese evento bajo ninguna circunstancia. El usuario mantiene el control absoluto sobre lo que decide anclar en su agenda.
+PARTE V — IMPLEMENTACIÓN
+30. Arquitectura Técnica
+30.1 Stack
+Capa
+	Tecnología
+	Frontend/Fullstack
+	Next.js 16 (App Router) · React 19 · TypeScript
+	Estilos
+	Tailwind CSS · Lucide Icons
+	Persistencia local
+	LocalStorage con esquema tipado
+	Persistencia cloud
+	Supabase (PostgreSQL + Realtime)
+	CSP Solver
+	TypeScript puro — sin dependencias externas
+	Clima
+	Open-Meteo API
+	LLM
+	Google Gemini Flash (failover cadena)
+	Importación multimodal
+	SmartScheduleImporter vía visión LLM
+	30.2 La Arquitectura Híbrida CSP + LLM
+
+
+
+
+
+
+ENTRADA (texto libre / imagen / voz)
+      ↓
+[CAPA NLU — LLM]
+Traduce lenguaje natural → JSON estructurado
+Parsea screenshots (WhatsApp, SIU Guaraní, foto de pizarrón)
+Detecta señales de fatiga o cambios de contexto
+
+      ↓ JSON de evento / cambio
+      ↓
+[CAPA CSP — TypeScript local, < 50ms, offline]
+1. Valida 10 HCs (garantía matemática)
+2. Evalúa 1 GHC (curva de penalización)
+3. Optimiza 16 SCs (función de costo ponderada con meta-sliders)
+4. Genera Constraint Trace
+      ↓
+[DiffViewerModal — Revisión humana]
+      ↓
+[Schedule confirmado → DataStore]
+      ↓
+[CAPA SÍNTESIS — LLM] (solo si el usuario lo pide)
+Briefing matutino empático
+Explicaciones en lenguaje natural
+
+El LLM hace: NLU · OCR de imágenes · síntesis matutina · resolución de ambigüedad
+El CSP hace: todo lo matemático: solapamientos, buffers, scores, optimización
+30.3 El GHC en el Pipeline del Solver
+Las GHCs se tratan en la Fase 4 (Optimización Local), no en la Fase 3 (Backtracking). En la Fase 3, solo las HCs determinan si una asignación es válida o inválida. En la Fase 4, las penalidades de las GHCs se suman a las de las SCs y el solver puede mover un evento que cruza ligeramente una GHC si el delta de Score es positivo. Esto hace que la GHC sea "casi-hard" sin ser técnicamente binaria.
+31. Estructura de Archivos
+
+
+
+
+
+
+src/
+├── lib/
+│   └── scheduler/
+│       ├── types.ts                    ← Todos los tipos de este documento
+│       ├── params.ts                   ← ConstraintParams con todos los valores editables
+│       ├── metaSliders.ts              ← Lógica de multiplicadores de meta-sliders
+│       │
+│       ├── hardConstraints/
+│       │   ├── HC01_noOverlap.ts
+│       │   ├── HC02_lockedEvents.ts
+│       │   ├── HC03_sleepPostFerro.ts
+│       │   ├── HC05_workTravel.ts
+│       │   ├── HC05b_travelViability.ts
+│       │   ├── HC07_universitySchedule.ts
+│       │   ├── HC08_weatherRelocation.ts
+│       │   ├── HC09_minimumSleep.ts
+│       │   ├── HC10_noWorkOverlap.ts
+│       │   └── HC11_cognitiveBanPostFerro.ts
+│       │
+│       ├── graduatedHardConstraints/
+│       │   └── GHC01_cannabisBuffer.ts     ← La función de penalización cuadrática
+│       │
+│       ├── softConstraints/
+│       │   ├── SC01_studyBlocks.ts
+│       │   ├── SC02_batchCooking.ts
+│       │   ├── SC03_socialGoals.ts
+│       │   ├── SC04_circadianFatigue.ts
+│       │   ├── SC05_evenDistribution.ts
+│       │   ├── SC06_contactAvailability.ts
+│       │   ├── SC07_timePreferences.ts
+│       │   ├── SC08_goodWeatherForSocial.ts
+│       │   ├── SC08b_badWeatherForProductivity.ts  ← Nueva
+│       │   ├── SC09_noDeadTime.ts
+│       │   ├── SC10_energyEconomy.ts
+│       │   ├── SC11_mealsAndRest.ts
+│       │   ├── SC12_totalTravelTime.ts
+│       │   ├── SC13_weeklyBudget.ts
+│       │   ├── SC14_contextSwitching.ts
+│       │   ├── SC15_serendipitySlots.ts
+│       │   └── SC16_sensitiveContactBalance.ts
+│       │
+│       ├── solver.ts                   ← Pipeline completo
+│       ├── scorer.ts                   ← Función de penalización unificada
+│       ├── propagator.ts               ← AC-3 + Forward Checking
+│       ├── postProcessor.ts            ← Buffers auto + fusión de gaps
+│       └── constraintTrace.ts          ← Trace para DiffViewer
+│
+├── components/
+│   ├── DiffViewerModal.tsx
+│   ├── WeeklyPlanningSession.tsx
+│   ├── ConstraintPanel.tsx             ← Con parámetros editables inline
+│   ├── MetaSliders.tsx
+│   ├── ScoreWidget.tsx
+│   ├── WhatShouldIDoNow.tsx
+│   ├── RetrospectiveView.tsx
+│   └── SimulationMode.tsx
+│
+└── __tests__/
+   ├── HC03_sleepPostFerro.test.ts
+   ├── GHC01_cannabisBuffer.test.ts    ← Testea la curva cuadrática
+   ├── SC08_goodWeather.test.ts
+   ├── SC08b_badWeather.test.ts
+   ├── metaSliders.test.ts
+   └── solver.integration.test.ts
+
+32. Roadmap de Implementación
+
+
+
+
+
+
+Code snippet
+flowchart TD
+   F0["🔵 Fase 0 — Formalización\n2 semanas\n─────────────────────────────\ntypes.ts con todos los tipos\nparams.ts con todos los valores editables\nUn archivo por HC, GHC y SC\nUnit tests: uno por HC, uno por GHC\n(test de la curva cuadrática incluido)"]
+
+   F1["🟡 Fase 1 — CSP Core\n3 semanas\n─────────────────────────────\nInterval solver con AC-3\nBacktracking + Forward Checking para HCs\nFase 4 de optimización integra GHC-01 + SCs\nFunción de penalización unificada\nConstraint Trace para DiffViewer\nTarget: < 50ms para 30 eventos"]
+
+   F2["🟠 Fase 2 — Recurrencia + Sync\n2 semanas\n─────────────────────────────\nRecurrencePattern completo\nExcepciones puntuales de contactos\nSupabase sync con offline queue\nConflict resolution Last Write Wins"]
+
+   F3["🟢 Fase 3 — Clima + Social + SC nuevas\n2 semanas\n─────────────────────────────\nComfortScore con 3 dimensiones\nSC-08 (buen clima → social)\nSC-08b (mal clima → productividad)\nSocialOpportunitySlots\nDetección proactiva de ventanas"]
+
+   F4["🔶 Fase 4 — UX Core\n2 semanas\n─────────────────────────────\nSesión de Planificación Semanal\nDiffViewerModal con GHC prominente\nPanel de restricciones con params editables\nMeta-Sliders con multiplicadores\nPresets de semana y meta-slider presets\nScore con drill-down separado por tier\nVista principal proporcional diaria/semanal"]
+
+   F5["🟣 Fase 5 — Features de Producto\ncontinuo\n─────────────────────────────\nFatigue Tracker post-Ferro\nModo ¿Qué hago ahora? con estrategia climática\nRetrospectiva semanal\nAprendizaje de patrones\nModo Simulación\nModelo económico ARS\nOnboarding completo\nBriefing diario LLM"]
+
+   F0 --> F1 --> F2 --> F3 --> F4 --> F5
+
+   style F0 fill:#3b82f6,color:#fff
+   style F1 fill:#eab308,color:#000
+   style F2 fill:#f97316,color:#fff
+   style F3 fill:#22c55e,color:#fff
+   style F4 fill:#f97316,color:#fff
+   style F5 fill:#8b5cf6,color:#fff
+
+El Primer Paso Concreto
+La Fase 0 comienza con params.ts — el archivo que implementa el Principio P9 (todo es editable):
+
+
+
+
+
+
+TypeScript
+// src/lib/scheduler/params.ts
+export interface ConstraintParams {
+ // GHC-01
+ cannabis_buffer_target: number;         // default: 240
+ cannabis_buffer_floor: number;          // default: 120
+ w_ghc01: number;                        // default: 8
+
+ // HC-03 / HC-09
+ sleep_target_post_ferro: number;        // default: 480
+ sleep_minimum_absolute: number;         // default: 360
+
+ // HC-05
+ travel_buffer_casino: number;           // default: 30
+ travel_buffer_ferro: number;            // default: 45
+
+ // HC-11
+ cognitive_ban_post_ferro: number;       // default: 90
+
+ // HC-08
+ weather_extreme_threshold: number;      // default: 20
+
+ // SCs
+ study_block_min_duration: number;       // default: 120
+ batch_cooking_target: number;           // default: 2
+ batch_cooking_duration: number;         // default: 120
+ dead_time_threshold: number;            // default: 20
+ context_switches_max: number;           // default: 4
+ serendipity_slots_per_week: number;     // default: 2
+ travel_time_max_daily: number;          // default: 90
+ long_session_no_meal_threshold: number; // default: 300
+ comfort_opportunity_threshold: number;  // default: 70
+ comfort_indoor_threshold: number;       // default: 40
+ weekly_budget_ars?: number;             // default: undefined (SC-13 inactiva)
+ sensitive_contact_weekly_limit: number; // default: 2 (SC-16, cuando está activa)
+}
+
+export const defaultParams: ConstraintParams = {
+ cannabis_buffer_target: 240,
+ cannabis_buffer_floor: 120,
+ w_ghc01: 8,
+ sleep_target_post_ferro: 480,
+ sleep_minimum_absolute: 360,
+ travel_buffer_casino: 30,
+ travel_buffer_ferro: 45,
+ cognitive_ban_post_ferro: 90,
+ weather_extreme_threshold: 20,
+ study_block_min_duration: 120,
+ batch_cooking_target: 2,
+ batch_cooking_duration: 120,
+ dead_time_threshold: 20,
+ context_switches_max: 4,
+ serendipity_slots_per_week: 2,
+ travel_time_max_daily: 90,
+ long_session_no_meal_threshold: 300,
+ comfort_opportunity_threshold: 70,
+ comfort_indoor_threshold: 40,
+ weekly_budget_ars: undefined,
+ sensitive_contact_weekly_limit: 2,
+};
+
+Y el test de GHC-01, que es el caso más interesante de testear:
+
+
+
+
+
+
+TypeScript
+// __tests__/GHC01_cannabisBuffer.test.ts
+describe('GHC-01 · Buffer post-consumo (curva cuadrática)', () => {
+ const params = { ...defaultParams, cannabis_buffer_target: 240, cannabis_buffer_floor: 120, w_ghc01: 8 };
+
+ test('buffer exacto al target → penalidad 0', () => {
+   expect(computeGHC01Penalty(240, params)).toBe(0);
+ });
+
+ test('buffer mayor al target → penalidad 0', () => {
+   expect(computeGHC01Penalty(300, params)).toBe(0);
+ });
+
+ test('buffer en el piso exacto → penalidad máxima del rango', () => {
+   expect(computeGHC01Penalty(120, params)).toBe(8 * 1.0);  // 8 × 1²
+ });
+
+ test('buffer a mitad del rango → penalidad cuadrática', () => {
+   // buffer = 180 = mitad entre 120 y 240
+   // (240-180)/(240-120) = 60/120 = 0.5 → 0.5² = 0.25
+   expect(computeGHC01Penalty(180, params)).toBeCloseTo(8 * 0.25);
+ });
+
+ test('buffer por debajo del piso → penalidad infinita (inválido)', () => {
+   expect(computeGHC01Penalty(90, params)).toBe(Infinity);
+ });
+
+ test('buffer negativo → siempre inválido', () => {
+   expect(computeGHC01Penalty(-10, params)).toBe(Infinity);
+ });
+});
+
+Estado Final de la Especificación
+Área
+	Estado
+	Notas
+	Propósito y principios (incluyendo P9)
+	✅
+	v1.1
+	Contexto de Matu (correcciones aplicadas)
+	✅
+	Materias, Lau, hogar
+	Hard Constraints (10)
+	✅
+	Todos los params editables
+	Graduated Hard Constraints (1: GHC-01)
+	✅
+	Nuevo en v1.1
+	Soft Constraints (16, incluyendo SC-08b y SC-16)
+	✅
+	Nuevas en v1.1
+	Función de penalización unificada
+	✅
+	Integra los 3 tiers
+	Meta-Sliders (3 ejes)
+	✅
+	Nuevo en v1.1
+	Modelo social abierto
+	✅
+	Lau sin HC-06
+	Sistema meteorológico + estrategia indoor
+	✅
+	Estrategia revisada v1.1
+	Eventos recurrentes + excepciones
+	✅
+	
+
+	Modelo de datos TypeScript
+	✅
+	
+
+	Algoritmo CSP (con GHC en Fase 4)
+	✅
+	
+
+	Sincronización multi-dispositivo
+	✅
+	
+
+	Sesión de Planificación Semanal
+	✅
+	Con meta-sliders
+	DiffViewerModal (con GHC prominente)
+	✅
+	
+
+	Panel de restricciones (params editables)
+	✅
+	
+
+	Score con drill-down por tier
+	✅
+	
+
+	Modo ¿Qué hago ahora?
+	✅
+	Con estrategia climática
+	Retrospectiva semanal
+	✅
+	
+
+	Aprendizaje de patrones
+	✅
+	
+
+	Modo simulación
+	✅
+	
+
+	Modelo económico ARS
+	✅
+	
+
+	Arquitectura de notificaciones
+	✅
+	
+
+	Privacidad (reencuadrada v1.1)
+	✅
+	Sin PIN/PanicMode
+	Onboarding
+	✅
+	Con meta-sliders en paso 4
+	Vista Principal de Calendario
+	✅
+	Vistas espacialmente proporcionales y lock universal por evento
+	Arquitectura técnica + GHC en pipeline
+	✅
+	
+
+	Estructura de archivos
+	✅
+	Con GHC01 y SC08b
+	Roadmap + params.ts como primer paso
+	✅
+	
+
+	[!NOTE]
+Fuente de verdad única. Este documento reemplaza todos los anteriores (v1–v4, v1.0). Cualquier decisión de implementación que contradiga lo aquí especificado requiere actualizar este documento primero.
