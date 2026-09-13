@@ -51,14 +51,35 @@ ALTER TABLE public.mimesa_params ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mimesa_contacts ENABLE ROW LEVEL SECURITY;
 
 -- Allow anon read/write (for local-first multi-device sync)
+DROP POLICY IF EXISTS "Allow anon read events" ON public.mimesa_events;
 CREATE POLICY "Allow anon read events" ON public.mimesa_events FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow anon insert events" ON public.mimesa_events;
 CREATE POLICY "Allow anon insert events" ON public.mimesa_events FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow anon update events" ON public.mimesa_events;
 CREATE POLICY "Allow anon update events" ON public.mimesa_events FOR UPDATE USING (true);
+
+DROP POLICY IF EXISTS "Allow anon delete events" ON public.mimesa_events;
 CREATE POLICY "Allow anon delete events" ON public.mimesa_events FOR DELETE USING (true);
 
+DROP POLICY IF EXISTS "Allow anon all params" ON public.mimesa_params;
 CREATE POLICY "Allow anon all params" ON public.mimesa_params FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Allow anon all contacts" ON public.mimesa_contacts;
 CREATE POLICY "Allow anon all contacts" ON public.mimesa_contacts FOR ALL USING (true);
 
--- Enable Realtime
-ALTER PUBLICATION supabase_realtime ADD TABLE public.mimesa_events;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.mimesa_params;
+-- Enable Realtime safely
+DO $$
+BEGIN
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.mimesa_events;
+  EXCEPTION
+    WHEN duplicate_object THEN NULL;
+  END;
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.mimesa_params;
+  EXCEPTION
+    WHEN duplicate_object THEN NULL;
+  END;
+END $$;
